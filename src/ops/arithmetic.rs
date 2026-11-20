@@ -7,26 +7,27 @@
 ///
 /// Returns None if the shapes are incompatible for broadcasting.
 pub fn broadcast_shape(a: &[usize], b: &[usize]) -> Option<Vec<usize>> {
-    let max_ndim = a.len().max(b.len());
-    let mut result = Vec::with_capacity(max_ndim);
+    if a == b {
+        return Some(a.to_vec());
+    }
 
-    // Iterate from right to left
+    let max_ndim = a.len().max(b.len());
+    let mut result = vec![1usize; max_ndim];
+
+    // Iterate from right to left, writing each output dim in place
     for i in 0..max_ndim {
         let a_dim = if i < a.len() { a[a.len() - 1 - i] } else { 1 };
         let b_dim = if i < b.len() { b[b.len() - 1 - i] } else { 1 };
 
-        if a_dim == b_dim {
-            result.push(a_dim);
+        result[max_ndim - 1 - i] = if a_dim == b_dim || b_dim == 1 {
+            a_dim
         } else if a_dim == 1 {
-            result.push(b_dim);
-        } else if b_dim == 1 {
-            result.push(a_dim);
+            b_dim
         } else {
             return None; // Incompatible shapes
-        }
+        };
     }
 
-    result.reverse();
     Some(result)
 }
 
@@ -176,5 +177,12 @@ mod tests {
         // Incompatible shapes
         assert_eq!(broadcast_shape(&[2, 3], &[2, 4]), None);
         assert_eq!(broadcast_shape(&[3], &[4]), None);
+
+        // Scalars and zero extents
+        assert_eq!(broadcast_shape(&[], &[]), Some(vec![]));
+        assert_eq!(broadcast_shape(&[], &[2, 3]), Some(vec![2, 3]));
+        assert_eq!(broadcast_shape(&[0, 1], &[1, 4]), Some(vec![0, 4]));
+        assert_eq!(broadcast_shape(&[1, 1], &[0]), Some(vec![1, 0]));
+        assert_eq!(broadcast_shape(&[2], &[0]), None);
     }
 }

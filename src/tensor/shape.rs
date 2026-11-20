@@ -102,13 +102,13 @@ impl From<SmallVec<[usize; STACK_DIMS]>> for Shape {
 
 impl From<Vec<usize>> for Shape {
     fn from(value: Vec<usize>) -> Self {
-        Self(value.into_iter().collect())
+        Self(SmallVec::from_slice(&value))
     }
 }
 
 impl From<&[usize]> for Shape {
     fn from(value: &[usize]) -> Self {
-        Self(value.iter().copied().collect())
+        Self(SmallVec::from_slice(value))
     }
 }
 

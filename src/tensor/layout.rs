@@ -34,7 +34,7 @@ impl Layout {
     /// assert_eq!(layout.strides(), &[12, 4, 1]);
     /// ```
     pub fn contiguous(shape: &[usize]) -> Self {
-        let shape: Shape = shape.iter().copied().collect();
+        let shape = Shape::from(shape);
         let strides = Self::compute_contiguous_strides(&shape);
         Self {
             shape,
@@ -70,16 +70,12 @@ impl Layout {
             return Strides::new();
         }
 
-        let mut strides = Strides::with_capacity(shape.len());
-        let mut stride = 1isize;
-
-        // Compute strides from last dimension to first
-        for &dim in shape.iter().rev() {
-            strides.push(stride);
-            stride *= dim as isize;
+        // Fill from the last dimension to the first, in place. The product
+        // past the outermost dimension is never stored, so it is not computed.
+        let mut strides = Strides::from(smallvec::SmallVec::from_elem(1isize, shape.len()));
+        for i in (1..shape.len()).rev() {
+            strides[i - 1] = strides[i] * shape[i] as isize;
         }
-
-        strides.reverse();
         strides
     }
 
@@ -690,33 +686,21 @@ impl Layout {
             return None;
         }
 
-        let mut new_shape = Shape::new();
-        let mut new_strides = Strides::new();
-
+        // The result's shape is `target` itself. Leading padded dims and
+        // broadcast size-1 dims get stride 0; matching dims keep their stride.
         let pad = target.len() - self.ndim();
-        for &t in &target[..pad] {
-            new_shape.push(t);
-            new_strides.push(0);
-        }
+        let mut new_strides = Strides::from(smallvec::SmallVec::from_elem(0isize, target.len()));
 
-        for ((&s, &st), &t) in self
-            .shape
-            .iter()
-            .zip(self.strides.iter())
-            .zip(&target[pad..])
-        {
+        for (i, (&s, &st)) in self.shape.iter().zip(self.strides.iter()).enumerate() {
+            let t = target[pad + i];
             if s == t {
-                new_shape.push(t);
-                new_strides.push(st);
-            } else if s == 1 {
-                new_shape.push(t);
-                new_strides.push(0);
-            } else {
+                new_strides[pad + i] = st;
+            } else if s != 1 {
                 return None;
             }
         }
 
-        Some(Self::new(new_shape, new_strides, self.offset))
+        Some(Self::new(Shape::from(target), new_strides, self.offset))
     }
 }
 
@@ -813,6 +797,34 @@ mod tests {
         assert_eq!(layout.strides(), &[12, 4, 1]);
         assert_eq!(layout.elem_count(), 24);
         assert!(layout.is_contiguous());
+    }
+
+    #[test]
+    fn test_contiguous_strides_edge_shapes() {
+        assert_eq!(Layout::contiguous(&[]).strides(), &[] as &[isize]);
+        assert_eq!(Layout::contiguous(&[5]).strides(), &[1]);
+        assert_eq!(Layout::contiguous(&[2, 0, 3]).strides(), &[0, 3, 1]);
+        assert_eq!(
+            Layout::contiguous(&[2, 3, 1, 4, 5]).strides(),
+            &[60, 20, 20, 5, 1]
+        );
+    }
+
+    #[test]
+    fn test_broadcast_to_layout() {
+        let layout = Layout::new([3, 1], [1, 1], 7);
+        let b = layout.broadcast_to(&[2, 3, 4]).expect("broadcastable");
+        assert_eq!(b.shape(), &[2, 3, 4]);
+        assert_eq!(b.strides(), &[0, 1, 0]);
+        assert_eq!(b.offset(), 7);
+
+        let same = Layout::contiguous(&[2, 3])
+            .broadcast_to(&[2, 3])
+            .expect("same shape");
+        assert_eq!(same.strides(), &[3, 1]);
+
+        assert!(Layout::contiguous(&[2, 3]).broadcast_to(&[2, 4]).is_none());
+        assert!(Layout::contiguous(&[2, 3]).broadcast_to(&[3]).is_none());
     }
 
     #[test]

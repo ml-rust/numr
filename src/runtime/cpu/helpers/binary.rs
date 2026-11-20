@@ -100,17 +100,14 @@ fn write_binary_into(
             }
         }, op_name);
     } else {
-        // Broadcasting path: use strided kernel
-        // Broadcast both inputs to output shape (zero-copy views with stride 0 for broadcast dims)
-        let a_broadcast = a.broadcast_to(out_shape)?;
-        let b_broadcast = b.broadcast_to(out_shape)?;
+        // Broadcasting path: use strided kernel. Broadcasting keeps each
+        // input's offset, so its pointer is unchanged; only the layout (stride
+        // 0 on broadcast dims) is needed.
+        let a_layout = a.broadcast_layout(out_shape)?;
+        let b_layout = b.broadcast_layout(out_shape)?;
 
-        let a_ptr = a_broadcast.ptr();
-        let b_ptr = b_broadcast.ptr();
-
-        // Get strides from broadcast layouts
-        let a_strides: Vec<isize> = a_broadcast.layout().strides().to_vec();
-        let b_strides: Vec<isize> = b_broadcast.layout().strides().to_vec();
+        let a_ptr = a.ptr();
+        let b_ptr = b.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
@@ -120,8 +117,8 @@ fn write_binary_into(
                     b_ptr as *const T,
                     out_ptr as *mut T,
                     out_shape,
-                    &a_strides,
-                    &b_strides,
+                    a_layout.strides(),
+                    b_layout.strides(),
                     0,
                     0,
                 );
@@ -130,4 +127,37 @@ fn write_binary_into(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ops::BinaryOps;
+    use crate::runtime::cpu::{CpuClient, CpuDevice, CpuRuntime};
+    use crate::tensor::Tensor;
+
+    /// The broadcast path reads each input through its own pointer, so a view
+    /// at a nonzero offset must start at its first element, not the buffer's.
+    #[test]
+    fn broadcast_reads_offset_views_from_their_first_element() {
+        let device = CpuDevice::new();
+        let client = CpuClient::new(device.clone());
+        let base = Tensor::<CpuRuntime>::from_slice(
+            &[9.0f64, 9.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            &[4, 2],
+            &device,
+        )
+        .expect("base");
+        let rows = base.narrow(0, 1, 3).expect("narrow"); // [[1,2],[3,4],[5,6]]
+        let col = Tensor::<CpuRuntime>::from_slice(&[0.0f64, 10.0, 20.0, 30.0], &[4, 1], &device)
+            .expect("col")
+            .narrow(0, 1, 3)
+            .expect("narrow"); // [[10],[20],[30]]
+
+        let sum = client.add(&rows, &col).expect("add");
+        assert_eq!(sum.shape(), &[3, 2]);
+        assert_eq!(
+            sum.to_vec::<f64>(),
+            vec![11.0, 12.0, 23.0, 24.0, 35.0, 36.0]
+        );
+    }
 }

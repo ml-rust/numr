@@ -100,13 +100,13 @@ impl From<SmallVec<[isize; STACK_DIMS]>> for Strides {
 
 impl From<Vec<isize>> for Strides {
     fn from(value: Vec<isize>) -> Self {
-        Self(value.into_iter().collect())
+        Self(SmallVec::from_slice(&value))
     }
 }
 
 impl From<&[isize]> for Strides {
     fn from(value: &[isize]) -> Self {
-        Self(value.iter().copied().collect())
+        Self(SmallVec::from_slice(value))
     }
 }
 

@@ -484,19 +484,26 @@ impl<R: Runtime> Tensor<R> {
 
     /// Broadcast to a target shape (zero-copy)
     pub fn broadcast_to(&self, shape: &[usize]) -> Result<Self> {
-        let new_layout = self
-            .layout
-            .broadcast_to(shape)
-            .ok_or_else(|| Error::BroadcastError {
-                lhs: self.shape().to_vec(),
-                rhs: shape.to_vec(),
-            })?;
+        let new_layout = self.broadcast_layout(shape)?;
 
         Ok(Self {
             id: TensorId::new(),
             storage: self.storage.clone(),
             layout: new_layout,
         })
+    }
+
+    /// Layout of this tensor broadcast to `shape`, without building a tensor.
+    ///
+    /// The layout keeps this tensor's offset, so [`ptr`](Self::ptr) addresses
+    /// its first element. A kernel that only reads strides needs nothing more.
+    pub(crate) fn broadcast_layout(&self, shape: &[usize]) -> Result<Layout> {
+        self.layout
+            .broadcast_to(shape)
+            .ok_or_else(|| Error::BroadcastError {
+                lhs: self.shape().to_vec(),
+                rhs: shape.to_vec(),
+            })
     }
 
     /// Flip (reverse) tensor along a dimension (zero-copy)

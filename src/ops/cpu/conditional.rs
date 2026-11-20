@@ -88,23 +88,22 @@ impl ConditionalOps<CpuRuntime> for CpuClient {
             }
         } else {
             // Broadcasting path: use strided kernel
-            // Broadcast all inputs to output shape (zero-copy views with stride 0 for broadcast dims)
-            let cond_broadcast = cond.broadcast_to(&out_shape)?;
-            let x_broadcast = x.broadcast_to(&out_shape)?;
-            let y_broadcast = y.broadcast_to(&out_shape)?;
+            // Broadcast layouts of all inputs (stride 0 on broadcast dims).
+            let cond_layout = cond.broadcast_layout(&out_shape)?;
+            let x_layout = x.broadcast_layout(&out_shape)?;
+            let y_layout = y.broadcast_layout(&out_shape)?;
 
             // Strided kernels apply layout offsets to these storage-base pointers.
-            let cond_ptr = cond_broadcast.storage().ptr();
-            let x_ptr = x_broadcast.storage().ptr();
-            let y_ptr = y_broadcast.storage().ptr();
+            let cond_ptr = cond.storage().ptr();
+            let x_ptr = x.storage().ptr();
+            let y_ptr = y.storage().ptr();
 
-            // Get strides from broadcast layouts
-            let cond_strides: Vec<isize> = cond_broadcast.layout().strides().to_vec();
-            let x_strides: Vec<isize> = x_broadcast.layout().strides().to_vec();
-            let y_strides: Vec<isize> = y_broadcast.layout().strides().to_vec();
-            let cond_offset = cond_broadcast.layout().offset();
-            let x_offset = x_broadcast.layout().offset();
-            let y_offset = y_broadcast.layout().offset();
+            let cond_strides = cond_layout.strides();
+            let x_strides = x_layout.strides();
+            let y_strides = y_layout.strides();
+            let cond_offset = cond_layout.offset();
+            let x_offset = x_layout.offset();
+            let y_offset = y_layout.offset();
 
             // For U8 condition, use optimized kernel
             if cond_dtype == DType::U8 {
@@ -116,9 +115,9 @@ impl ConditionalOps<CpuRuntime> for CpuClient {
                             y_ptr as *const T,
                             out_ptr as *mut T,
                             &out_shape,
-                            &cond_strides,
-                            &x_strides,
-                            &y_strides,
+                            cond_strides,
+                            x_strides,
+                            y_strides,
                             cond_offset,
                             x_offset,
                             y_offset,
@@ -136,9 +135,9 @@ impl ConditionalOps<CpuRuntime> for CpuClient {
                                 y_ptr as *const T,
                                 out_ptr as *mut T,
                                 &out_shape,
-                                &cond_strides,
-                                &x_strides,
-                                &y_strides,
+                                cond_strides,
+                                x_strides,
+                                y_strides,
                                 cond_offset,
                                 x_offset,
                                 y_offset,
