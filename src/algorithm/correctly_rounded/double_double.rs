@@ -5,7 +5,7 @@
 //! round-to-nearest-even with gradual underflow.
 
 // Ported from the CORE-MATH project (https://core-math.gitlabpages.inria.fr/),
-// src/binary64/{exp/exp.c,log/log.c,log1p/log1p.c}.
+// src/binary64/{exp/exp.c,log/log.c,log1p/log1p.c,acos/acos.c}.
 // Copyright (c) 2022-2026 Alexei Sibidanov <sibid@uvic.ca>.
 // Copyright (c) 2022-2026 INRIA and CERN. Authors: Paul Zimmermann and Tom Hubrecht.
 //
@@ -101,6 +101,27 @@ pub fn fma_dw(ah: f64, al: f64, bh: f64, bl: f64, ch: f64, cl: f64) -> (f64, f64
     let f = e + cl;
     let g = ah * bl + f;
     (dh, al * bh + g)
+}
+
+/// Horner evaluation in double-double of `c` (`(hi, lo)` pairs, lowest degree first) at
+/// the double-double `xh + xl`. `low` is added to the leading coefficient first.
+///
+/// This is CORE-MATH's `polydd` of `log1p.c` and `acos.c`.
+#[inline(always)]
+pub fn horner_dd(xh: f64, xl: f64, c: &[u64], low: f64) -> (f64, f64) {
+    let n = c.len() / 2;
+    let (mut ch, l) = fast_two_sum(f64::from_bits(c[2 * (n - 1)]), low);
+    let mut cl = f64::from_bits(c[2 * (n - 1) + 1]) + l;
+    for i in (0..n - 1).rev() {
+        (ch, cl) = mul_dd(xh, xl, ch, cl);
+        (ch, cl) = fast_sum(
+            f64::from_bits(c[2 * i]),
+            f64::from_bits(c[2 * i + 1]),
+            ch,
+            cl,
+        );
+    }
+    (ch, cl)
 }
 
 /// Round `y` to the nearest integer, ties to even. Needs `|y| < 2^51`.

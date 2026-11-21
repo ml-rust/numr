@@ -44,12 +44,43 @@ impl Function {
 
 /// Compare every input against MPFR bit for bit and panic with the first mismatches.
 pub fn check_all<I: IntoIterator<Item = f64>>(function: Function, inputs: I, label: &str) {
+    check_unary(
+        &format!("{function:?}"),
+        |x| function.numr(x),
+        |x| function.reference(x),
+        inputs,
+        label,
+    );
+}
+
+/// MPFR's correctly rounded binary64 `acos(x)`, with NaN canonical.
+pub fn acos_reference(x: f64) -> f64 {
+    let mut y = Float::with_val(53, x);
+    let ternary = y.acos_round(Round::Nearest);
+    y.subnormalize_ieee_round(ternary, Round::Nearest);
+    let value = y.to_f64();
+    if value.is_nan() { CANONICAL_NAN } else { value }
+}
+
+/// Compare `acos` on every input against MPFR bit for bit and panic with the first mismatches.
+pub fn check_acos<I: IntoIterator<Item = f64>>(inputs: I, label: &str) {
+    check_unary("acos", cr::acos, acos_reference, inputs, label);
+}
+
+/// Compare `numr(x)` with `reference(x)` bit for bit and panic with the first mismatches.
+fn check_unary<I: IntoIterator<Item = f64>>(
+    name: &str,
+    numr: impl Fn(f64) -> f64,
+    reference: impl Fn(f64) -> f64,
+    inputs: I,
+    label: &str,
+) {
     let mut checked = 0usize;
     let mut mismatches = Vec::new();
     for x in inputs {
         checked += 1;
-        let got = function.numr(x);
-        let want = function.reference(x);
+        let got = numr(x);
+        let want = reference(x);
         if got.to_bits() != want.to_bits() {
             mismatches.push((x, got, want));
         }
@@ -69,7 +100,7 @@ pub fn check_all<I: IntoIterator<Item = f64>>(function: Function, inputs: I, lab
             })
             .collect();
         panic!(
-            "{function:?} {label}: {} of {checked} inputs differ from MPFR. Fix the kernel; first cases:\n{}",
+            "{name} {label}: {} of {checked} inputs differ from MPFR. Fix the kernel; first cases:\n{}",
             mismatches.len(),
             shown.join("\n")
         );
@@ -140,6 +171,17 @@ fn test_pow_oracle_returns_known_correctly_rounded_values() {
     assert_eq!(pow_reference(10.0, 400.0), f64::INFINITY);
     // 3^34 is a 54-bit midpoint, rounded to even.
     assert_eq!(pow_reference(3.0, 34.0), 16_677_181_699_666_568.0);
+}
+
+#[test]
+fn test_acos_oracle_returns_known_correctly_rounded_values() {
+    use std::f64::consts::{FRAC_PI_2, FRAC_PI_3, PI};
+    assert_eq!(acos_reference(0.5), FRAC_PI_3);
+    assert_eq!(acos_reference(-0.0), FRAC_PI_2);
+    assert_eq!(acos_reference(-1.0), PI);
+    assert_eq!(acos_reference(1.0).to_bits(), 0);
+    assert_eq!(acos_reference(1.5).to_bits(), CANONICAL_NAN.to_bits());
+    assert_eq!(acos_reference(f64::NAN).to_bits(), CANONICAL_NAN.to_bits());
 }
 
 #[test]

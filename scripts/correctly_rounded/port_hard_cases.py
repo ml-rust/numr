@@ -3,8 +3,8 @@
 
 Usage: port_hard_cases.py <core-math checkout> <output directory>
 
-Reads src/binary64/{exp/exp.wc,log/log.wc,log1p/log1p.wc} and writes
-{exp,log,log1p}.bin. Each file holds the sorted, distinct binary64 bit
+Reads src/binary64/{acos/acos.wc,exp/exp.wc,log/log.wc,log1p/log1p.wc} and
+writes {acos,exp,log,log1p}.bin. Each file holds the sorted, distinct binary64 bit
 patterns of the finite inputs, as unsigned LEB128 deltas from the previous
 pattern (the first from 0). Non-finite entries (nan, snan, inf) are left out:
 the special-value tests cover them.
@@ -21,7 +21,7 @@ import math
 import struct
 import sys
 
-FUNCTIONS = ["exp", "log", "log1p"]
+FUNCTIONS = ["acos", "exp", "log", "log1p"]
 
 
 def inputs(path):

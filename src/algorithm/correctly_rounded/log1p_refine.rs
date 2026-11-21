@@ -23,7 +23,7 @@
 // SOFTWARE.
 
 use super::double_double::{
-    fast_sum, fast_two_sum, mul_d_dd, mul_dd, round_ties_even, sum, two_sum,
+    fast_sum, fast_two_sum, horner_dd, mul_d_dd, mul_dd, round_ties_even, sum, two_sum,
 };
 use super::tables::{
     LOG1P_LN, LOG1P_REFINE_CL, LOG1P_REFINE_CY, LOG1P_REFINE_CZ, LOG1P_REFINE_CZL, LOG1P_RT, f,
@@ -117,7 +117,7 @@ pub fn log1p_refine(x: f64, a: f64) -> f64 {
         }
         let cl = |k| f(&LOG1P_REFINE_CL, k);
         let sl = xh * ((cl(0) + xh * cl(1)) + (xh * xh) * (cl(2) + xh * cl(3)));
-        let (sh, sl) = poly_dd(xh, xl, &LOG1P_REFINE_CY, sl);
+        let (sh, sl) = horner_dd(xh, xl, &LOG1P_REFINE_CY, sl);
         let (sh, sl) = mul_dd(xh, xl, sh, sl);
         if je != 0 {
             let jef = je as f64;
@@ -148,20 +148,6 @@ pub fn log1p_refine(x: f64, a: f64) -> f64 {
         ln21 = f64::from_bits(t);
     }
     ln22 + ln21
-}
-
-/// Horner evaluation in double-double of `c` (`(hi, lo)` pairs) at the double-double
-/// `xh + xl`. `low` is added to the leading coefficient first.
-#[inline(always)]
-fn poly_dd(xh: f64, xl: f64, c: &[u64], low: f64) -> (f64, f64) {
-    let n = c.len() / 2;
-    let (mut ch, l) = fast_two_sum(f(c, 2 * (n - 1)), low);
-    let mut cl = f(c, 2 * (n - 1) + 1) + l;
-    for i in (0..n - 1).rev() {
-        (ch, cl) = mul_dd(xh, xl, ch, cl);
-        (ch, cl) = fast_sum(f(c, 2 * i), f(c, 2 * i + 1), ch, cl);
-    }
-    (ch, cl)
 }
 
 /// Horner evaluation in double-double of `c` at the double `x`.

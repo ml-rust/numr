@@ -7,16 +7,21 @@
 //!   unknown for binary64 (Hubrecht, Jeannerod and Zimmermann, ARITH 2023,
 //!   <https://inria.hal.science/hal-04159652>). No known input fails the test. If one does,
 //!   the result is the 256-bit approximation rounded to nearest.
+//! - `acos`: correct rounding on `[-1, -2^-4]` and `[2^-4, 1]` is proven by CORE-MATH's
+//!   exhaustive search. For `|x| < 2^-4` no proof covers it, and MPFR tests find no
+//!   misrounded input.
 //!
 //! The bits are therefore a property of the mathematical function: they do not depend on
 //! the platform libm, the target, or the caller.
 //!
 //! The kernels port CORE-MATH (MIT licence, <https://core-math.gitlabpages.inria.fr/>).
 //! They use only IEEE add, subtract, multiply and `f64::mul_add`, in a fixed order, plus
-//! exact integer operations on bit patterns. The caller keeps round-to-nearest-even and
+//! exact integer operations on bit patterns. `acos` also uses IEEE divide and `f64::sqrt`. The caller keeps round-to-nearest-even and
 //! gradual underflow active. Every NaN result is the canonical quiet NaN
 //! `0x7ff8000000000000`. IEEE exception flags are not promised.
 
+mod acos;
+mod acos_refine;
 mod dint;
 mod double_double;
 mod exp;
@@ -38,6 +43,7 @@ mod tables;
 #[doc(hidden)]
 pub mod traced;
 
+pub use acos::acos;
 pub use double_double::CANONICAL_NAN;
 pub use exp::exp;
 pub use log::log;

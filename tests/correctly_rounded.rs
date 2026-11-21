@@ -8,6 +8,10 @@
 //! MSVC targets cannot build MPFR, so this binary is empty there.
 #![cfg(not(target_env = "msvc"))]
 
+#[path = "correctly_rounded/acos_hard_cases.rs"]
+mod acos_hard_cases;
+#[path = "correctly_rounded/acos_special.rs"]
+mod acos_special;
 #[path = "correctly_rounded/adversarial.rs"]
 mod adversarial;
 #[path = "correctly_rounded/coverage.rs"]

@@ -19,6 +19,11 @@ pub fn load(function: Function) -> Vec<f64> {
         Function::Log => "log",
         Function::Log1p => "log1p",
     };
+    load_fixture(name)
+}
+
+/// Decode `fixtures/{name}.bin` into its inputs.
+pub fn load_fixture(name: &str) -> Vec<f64> {
     let path = format!(
         "{}/tests/correctly_rounded/fixtures/{name}.bin",
         env!("CARGO_MANIFEST_DIR")
