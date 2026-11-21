@@ -64,6 +64,7 @@ pub mod indexing;
 pub mod indexing_advanced;
 pub mod int_accumulate_wgpu;
 pub mod int_generators_wgpu;
+pub mod multinomial_wgpu;
 pub mod int_ops_wgpu;
 pub mod int_rounding_wgpu;
 #[cfg(feature = "sparse")]
