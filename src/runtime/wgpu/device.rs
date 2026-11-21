@@ -8,7 +8,7 @@
 //! is cached on construction.
 
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use wgpu::{Adapter, Backend, DownlevelFlags, Features, Limits};
 
 /// Error type for WebGPU operations.
@@ -304,13 +304,23 @@ impl fmt::Debug for WgpuDevice {
 // Adapter Discovery
 // ============================================================================
 
+/// The process-wide WebGPU instance.
+///
+/// One instance serves every adapter query, and it is never dropped. Some GL
+/// drivers crash when the last reference to a GL context drops off the main
+/// thread, as the NVIDIA D3D12 driver under WSL does.
+fn instance() -> &'static wgpu::Instance {
+    static INSTANCE: OnceLock<wgpu::Instance> = OnceLock::new();
+    INSTANCE.get_or_init(wgpu::Instance::default)
+}
+
 /// Query adapter information for a device index.
 ///
 /// This is an async operation that requests a WebGPU adapter.
 pub(crate) async fn query_adapter_info(
     index: usize,
 ) -> Result<(Adapter, Arc<AdapterInfo>), WgpuError> {
-    let instance = wgpu::Instance::default();
+    let instance = instance();
 
     // Enumerate all adapters and select by index.
     let mut adapters: Vec<_> = instance.enumerate_adapters(wgpu::Backends::all()).await;
