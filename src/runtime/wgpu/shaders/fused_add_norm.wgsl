@@ -364,6 +364,8 @@ fn fused_add_layer_norm_bwd_f32(@builtin(global_invocation_id) global_id: vec3<u
 
     let variance = falnb_shared_var[0] / f32(hidden_size);
     let inv_std = 1.0 / sqrt(variance + eps);
+    // Every thread reads falnb_shared_var[0] before the next pass reuses it.
+    workgroupBarrier();
 
     // Compute grad_scaled = grad * weight sums. Reads the shifted value each
     // thread wrote to falnb_d_input_residual at its own index in phase 1.
