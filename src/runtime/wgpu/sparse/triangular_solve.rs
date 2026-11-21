@@ -3,6 +3,7 @@
 use wgpu::{BindGroupDescriptor, BindGroupEntry, BufferUsages};
 
 use super::super::ops::helpers::get_tensor_buffer;
+use super::super::shaders::create_checked_bind_group;
 use super::super::shaders::linear_grid::dispatch_linear;
 use super::super::{WgpuClient, WgpuRuntime};
 use super::common::{cast_i64_to_i32_gpu, create_trsv_layout, validate_wgpu_dtype};
@@ -208,40 +209,43 @@ fn launch_sparse_trsv_lower(
     let b_buf = get_tensor_buffer(b)?;
     let x_buf = get_tensor_buffer(x)?;
 
-    let bind_group = client.wgpu_device.create_bind_group(&BindGroupDescriptor {
-        label: Some("trsv_lower_bind_group"),
-        layout: &layout,
-        entries: &[
-            BindGroupEntry {
-                binding: 0,
-                resource: level_rows_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 1,
-                resource: row_ptrs_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 2,
-                resource: col_indices_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 3,
-                resource: values_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 4,
-                resource: b_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 5,
-                resource: x_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 6,
-                resource: params_buffer.as_entire_binding(),
-            },
-        ],
-    });
+    let bind_group = create_checked_bind_group(
+        &client.wgpu_device,
+        &BindGroupDescriptor {
+            label: Some("trsv_lower_bind_group"),
+            layout: &layout,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: level_rows_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: row_ptrs_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: col_indices_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: values_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 4,
+                    resource: b_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 5,
+                    resource: x_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 6,
+                    resource: params_buffer.as_entire_binding(),
+                },
+            ],
+        },
+    )?;
 
     let threads = level_size;
 
@@ -307,40 +311,43 @@ fn launch_sparse_trsv_upper(
     let b_buf = get_tensor_buffer(b)?;
     let x_buf = get_tensor_buffer(x)?;
 
-    let bind_group = client.wgpu_device.create_bind_group(&BindGroupDescriptor {
-        label: Some("trsv_upper_bind_group"),
-        layout: &layout,
-        entries: &[
-            BindGroupEntry {
-                binding: 0,
-                resource: level_rows_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 1,
-                resource: row_ptrs_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 2,
-                resource: col_indices_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 3,
-                resource: values_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 4,
-                resource: b_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 5,
-                resource: x_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 6,
-                resource: params_buffer.as_entire_binding(),
-            },
-        ],
-    });
+    let bind_group = create_checked_bind_group(
+        &client.wgpu_device,
+        &BindGroupDescriptor {
+            label: Some("trsv_upper_bind_group"),
+            layout: &layout,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: level_rows_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: row_ptrs_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: col_indices_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: values_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 4,
+                    resource: b_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 5,
+                    resource: x_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 6,
+                    resource: params_buffer.as_entire_binding(),
+                },
+            ],
+        },
+    )?;
 
     let threads = level_size;
 
@@ -418,40 +425,43 @@ fn launch_sparse_trsv_lower_multi_rhs(
     let b_buf = get_tensor_buffer(b)?;
     let x_buf = get_tensor_buffer(x)?;
 
-    let bind_group = client.wgpu_device.create_bind_group(&BindGroupDescriptor {
-        label: Some("trsv_lower_multi_rhs_bind_group"),
-        layout: &layout,
-        entries: &[
-            BindGroupEntry {
-                binding: 0,
-                resource: level_rows_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 1,
-                resource: row_ptrs_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 2,
-                resource: col_indices_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 3,
-                resource: values_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 4,
-                resource: b_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 5,
-                resource: x_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 6,
-                resource: params_buffer.as_entire_binding(),
-            },
-        ],
-    });
+    let bind_group = create_checked_bind_group(
+        &client.wgpu_device,
+        &BindGroupDescriptor {
+            label: Some("trsv_lower_multi_rhs_bind_group"),
+            layout: &layout,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: level_rows_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: row_ptrs_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: col_indices_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: values_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 4,
+                    resource: b_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 5,
+                    resource: x_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 6,
+                    resource: params_buffer.as_entire_binding(),
+                },
+            ],
+        },
+    )?;
 
     let threads = level_size * nrhs;
 
@@ -528,40 +538,43 @@ fn launch_sparse_trsv_upper_multi_rhs(
     let b_buf = get_tensor_buffer(b)?;
     let x_buf = get_tensor_buffer(x)?;
 
-    let bind_group = client.wgpu_device.create_bind_group(&BindGroupDescriptor {
-        label: Some("trsv_upper_multi_rhs_bind_group"),
-        layout: &layout,
-        entries: &[
-            BindGroupEntry {
-                binding: 0,
-                resource: level_rows_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 1,
-                resource: row_ptrs_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 2,
-                resource: col_indices_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 3,
-                resource: values_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 4,
-                resource: b_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 5,
-                resource: x_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 6,
-                resource: params_buffer.as_entire_binding(),
-            },
-        ],
-    });
+    let bind_group = create_checked_bind_group(
+        &client.wgpu_device,
+        &BindGroupDescriptor {
+            label: Some("trsv_upper_multi_rhs_bind_group"),
+            layout: &layout,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: level_rows_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: row_ptrs_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: col_indices_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: values_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 4,
+                    resource: b_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 5,
+                    resource: x_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 6,
+                    resource: params_buffer.as_entire_binding(),
+                },
+            ],
+        },
+    )?;
 
     let threads = level_size * nrhs;
 

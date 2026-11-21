@@ -152,7 +152,7 @@ pub fn launch_matmul(
     });
     let pipeline = cache.get_or_create_pipeline(shader.module_key, shader.tiled, &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[a, b, c, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[a, b, c, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -203,7 +203,7 @@ pub fn launch_matmul_simple(
     });
     let pipeline = cache.get_or_create_pipeline(shader.module_key, shader.simple, &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[a, b, c, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[a, b, c, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -255,7 +255,7 @@ pub fn launch_batched_matmul(
     let pipeline =
         cache.get_or_create_pipeline(shader.module_key, shader.batched, &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[a, b, c, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[a, b, c, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -311,7 +311,7 @@ pub fn launch_matvec(
     });
     let pipeline = cache.get_or_create_pipeline("matmul", "matvec_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[a, x, y, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[a, x, y, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -362,7 +362,7 @@ pub fn launch_matmul_bias(
     });
     let pipeline = cache.get_or_create_pipeline(shader.module_key, shader.tiled, &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[a, b, bias, c, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[a, b, bias, c, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -413,7 +413,7 @@ pub fn launch_batched_matmul_bias(
     let pipeline =
         cache.get_or_create_pipeline(shader.module_key, shader.batched, &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[a, b, bias, c, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[a, b, bias, c, params_buffer])?;
 
     let mut encoder = cache
         .device()

@@ -3,6 +3,7 @@
 use wgpu::{BindGroupDescriptor, BindGroupEntry, BufferUsages};
 
 use super::super::ops::helpers::get_tensor_buffer;
+use super::super::shaders::create_checked_bind_group;
 use super::super::shaders::linear_grid::dispatch_linear;
 use super::super::{WgpuClient, WgpuRuntime};
 use super::common::{
@@ -306,28 +307,31 @@ pub(super) fn launch_find_diag_indices(
     let diag_indices_buf = get_tensor_buffer(diag_indices)?;
 
     // Create bind group
-    let bind_group = client.wgpu_device.create_bind_group(&BindGroupDescriptor {
-        label: Some("find_diag_indices_bind_group"),
-        layout: &layout,
-        entries: &[
-            BindGroupEntry {
-                binding: 0,
-                resource: row_ptrs_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 1,
-                resource: col_indices_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 2,
-                resource: diag_indices_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 3,
-                resource: params_buffer.as_entire_binding(),
-            },
-        ],
-    });
+    let bind_group = create_checked_bind_group(
+        &client.wgpu_device,
+        &BindGroupDescriptor {
+            label: Some("find_diag_indices_bind_group"),
+            layout: &layout,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: row_ptrs_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: col_indices_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: diag_indices_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: params_buffer.as_entire_binding(),
+                },
+            ],
+        },
+    )?;
 
     // Dispatch
     let threads = n;
@@ -400,36 +404,39 @@ pub(super) fn launch_ilu0_level(
     let values_buf = get_tensor_buffer(values)?;
     let diag_indices_buf = get_tensor_buffer(diag_indices)?;
 
-    let bind_group = client.wgpu_device.create_bind_group(&BindGroupDescriptor {
-        label: Some("ilu0_level_bind_group"),
-        layout: &layout,
-        entries: &[
-            BindGroupEntry {
-                binding: 0,
-                resource: level_rows_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 1,
-                resource: row_ptrs_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 2,
-                resource: col_indices_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 3,
-                resource: values_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 4,
-                resource: diag_indices_buf.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 5,
-                resource: params_buffer.as_entire_binding(),
-            },
-        ],
-    });
+    let bind_group = create_checked_bind_group(
+        &client.wgpu_device,
+        &BindGroupDescriptor {
+            label: Some("ilu0_level_bind_group"),
+            layout: &layout,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: level_rows_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: row_ptrs_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: col_indices_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: values_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 4,
+                    resource: diag_indices_buf.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 5,
+                    resource: params_buffer.as_entire_binding(),
+                },
+            ],
+        },
+    )?;
 
     let threads = level_size;
 

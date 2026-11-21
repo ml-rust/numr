@@ -29,7 +29,7 @@ pub fn launch_thomas_solve(
     let pipeline =
         cache.get_or_create_pipeline("linalg_banded", "thomas_solve_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[ab, b, x, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[ab, b, x, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -73,7 +73,7 @@ pub fn launch_banded_lu_solve(
     let pipeline =
         cache.get_or_create_pipeline("linalg_banded", "banded_lu_solve_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[ab, b, x, work, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[ab, b, x, work, params_buffer])?;
 
     let mut encoder = cache
         .device()

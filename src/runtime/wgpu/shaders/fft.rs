@@ -66,7 +66,7 @@ pub fn launch_stockham_fft_batched(
         &layout,
     );
 
-    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, params]);
+    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, params])?;
 
     let mut encoder =
         pipeline_cache
@@ -115,7 +115,7 @@ pub fn launch_stockham_fft_stage(
         &layout,
     );
 
-    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, params]);
+    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, params])?;
 
     let mut encoder =
         pipeline_cache
@@ -160,7 +160,7 @@ pub fn launch_scale_complex(
     let pipeline =
         pipeline_cache.get_or_create_pipeline("stockham_fft", "scale_complex", &module, &layout);
 
-    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, params]);
+    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, params])?;
 
     let mut encoder =
         pipeline_cache
@@ -203,7 +203,7 @@ pub fn launch_fftshift(
 
     let pipeline = pipeline_cache.get_or_create_pipeline("fftshift", "fftshift", &module, &layout);
 
-    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, params]);
+    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, params])?;
 
     let mut encoder =
         pipeline_cache
@@ -246,7 +246,7 @@ pub fn launch_ifftshift(
 
     let pipeline = pipeline_cache.get_or_create_pipeline("fftshift", "ifftshift", &module, &layout);
 
-    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, params]);
+    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, params])?;
 
     let mut encoder =
         pipeline_cache
@@ -290,7 +290,7 @@ pub fn launch_rfft_pack(
     let pipeline =
         pipeline_cache.get_or_create_pipeline("rfft_pack", "rfft_pack", &module, &layout);
 
-    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, params]);
+    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, params])?;
 
     let mut encoder =
         pipeline_cache
@@ -334,7 +334,7 @@ pub fn launch_irfft_unpack(
     let pipeline =
         pipeline_cache.get_or_create_pipeline("irfft_unpack", "irfft_unpack", &module, &layout);
 
-    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, params]);
+    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, params])?;
 
     let mut encoder =
         pipeline_cache
@@ -382,7 +382,7 @@ pub fn launch_hermitian_extend(
         &layout,
     );
 
-    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, params]);
+    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, params])?;
 
     let mut encoder =
         pipeline_cache
@@ -426,7 +426,7 @@ pub fn launch_rfft_truncate(
     let pipeline =
         pipeline_cache.get_or_create_pipeline("rfft_truncate", "rfft_truncate", &module, &layout);
 
-    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, params]);
+    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, params])?;
 
     let mut encoder =
         pipeline_cache
@@ -469,7 +469,7 @@ pub fn launch_copy_complex(
     let pipeline =
         pipeline_cache.get_or_create_pipeline("copy_complex", "copy_complex", &module, &layout);
 
-    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, params]);
+    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, params])?;
 
     let mut encoder =
         pipeline_cache
@@ -524,7 +524,7 @@ pub fn launch_bluestein_stage(
     let pipeline =
         pipeline_cache.get_or_create_pipeline("fft_bluestein", entry_point, &module, &layout);
 
-    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, table, output, params]);
+    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, table, output, params])?;
 
     let mut encoder =
         pipeline_cache

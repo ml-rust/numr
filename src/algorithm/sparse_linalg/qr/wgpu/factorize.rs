@@ -13,6 +13,7 @@ use crate::algorithm::sparse_linalg::qr::types::{QrFactors, QrOptions, QrSymboli
 use crate::error::{Error, Result};
 use crate::runtime::wgpu::client::get_buffer;
 use crate::runtime::wgpu::shaders::LayoutKey;
+use crate::runtime::wgpu::shaders::create_checked_bind_group;
 use crate::runtime::wgpu::shaders::linear_grid::dispatch_linear;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::sparse::CscData;
@@ -99,7 +100,7 @@ pub(super) fn run_factorization_wgpu(
 
     // Column loop
     for k in 0..min_mn {
-        dispatch_clear(wgpu_device, queue, &pipelines, &uniform_bufs, &work_buf, m);
+        dispatch_clear(wgpu_device, queue, &pipelines, &uniform_bufs, &work_buf, m)?;
 
         dispatch_scatter(
             wgpu_device,
@@ -112,7 +113,7 @@ pub(super) fn run_factorization_wgpu(
             &col_ptrs,
             &symbolic.col_perm,
             k,
-        );
+        )?;
 
         dispatch_apply_reflectors(
             wgpu_device,
@@ -126,7 +127,7 @@ pub(super) fn run_factorization_wgpu(
             k,
             m,
             elem_size,
-        );
+        )?;
 
         dispatch_extract_r(
             wgpu_device,
@@ -137,7 +138,7 @@ pub(super) fn run_factorization_wgpu(
             &r_offdiag_buf,
             k,
             elem_size,
-        );
+        )?;
 
         dispatch_norm(
             wgpu_device,
@@ -148,7 +149,7 @@ pub(super) fn run_factorization_wgpu(
             &norm_sq_buf,
             k,
             m,
-        );
+        )?;
 
         dispatch_householder(
             wgpu_device,
@@ -163,7 +164,7 @@ pub(super) fn run_factorization_wgpu(
             k,
             m,
             elem_size,
-        );
+        )?;
     }
 
     // Wait for completion
@@ -303,7 +304,7 @@ fn dispatch_clear(
     u: &UniformBuffers,
     work_buf: &wgpu::Buffer,
     m: usize,
-) {
+) -> Result<()> {
     #[repr(C)]
     #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
     struct Params {
@@ -319,20 +320,23 @@ fn dispatch_clear(
         }),
     );
 
-    let bg = dev.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("qr_clear_bg"),
-        layout: &p.clear_layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: work_buf.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: u.clear.as_entire_binding(),
-            },
-        ],
-    });
+    let bg = create_checked_bind_group(
+        dev,
+        &wgpu::BindGroupDescriptor {
+            label: Some("qr_clear_bg"),
+            layout: &p.clear_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: work_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: u.clear.as_entire_binding(),
+                },
+            ],
+        },
+    )?;
     let mut enc = dev.create_command_encoder(&Default::default());
     {
         let mut pass = enc.begin_compute_pass(&Default::default());
@@ -341,6 +345,7 @@ fn dispatch_clear(
         dispatch_linear(&mut pass, m);
     }
     queue.submit(std::iter::once(enc.finish()));
+    Ok(())
 }
 
 fn dispatch_scatter(
@@ -354,14 +359,14 @@ fn dispatch_scatter(
     col_ptrs: &[i64],
     col_perm: &[usize],
     k: usize,
-) {
+) -> Result<()> {
     let orig_col = col_perm[k];
     let a_col_start = col_ptrs[orig_col] as u32;
     let a_col_end = col_ptrs[orig_col + 1] as u32;
     let a_col_nnz = a_col_end - a_col_start;
 
     if a_col_nnz == 0 {
-        return;
+        return Ok(());
     }
 
     #[repr(C)]
@@ -379,28 +384,31 @@ fn dispatch_scatter(
         }),
     );
 
-    let bg = dev.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("qr_scatter_bg"),
-        layout: &p.scatter_layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: a_values_buf.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: a_indices_buf.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: work_buf.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 3,
-                resource: u.scatter.as_entire_binding(),
-            },
-        ],
-    });
+    let bg = create_checked_bind_group(
+        dev,
+        &wgpu::BindGroupDescriptor {
+            label: Some("qr_scatter_bg"),
+            layout: &p.scatter_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: a_values_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: a_indices_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: work_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: u.scatter.as_entire_binding(),
+                },
+            ],
+        },
+    )?;
     let mut enc = dev.create_command_encoder(&Default::default());
     {
         let mut pass = enc.begin_compute_pass(&Default::default());
@@ -409,6 +417,7 @@ fn dispatch_scatter(
         dispatch_linear(&mut pass, a_col_nnz as usize);
     }
     queue.submit(std::iter::once(enc.finish()));
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -424,7 +433,7 @@ fn dispatch_apply_reflectors(
     k: usize,
     m: usize,
     elem_size: u64,
-) {
+) -> Result<()> {
     for j in 0..k {
         // Copy tau[j] to scalar buffer (GPU-to-GPU)
         let tau_byte_offset = (j as u64) * elem_size;
@@ -462,28 +471,31 @@ fn dispatch_apply_reflectors(
             }),
         );
 
-        let bg = dev.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("qr_reflector_bg"),
-            layout: &p.reflector_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: v_temp_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: tau_scalar_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: work_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: u.reflector.as_entire_binding(),
-                },
-            ],
-        });
+        let bg = create_checked_bind_group(
+            dev,
+            &wgpu::BindGroupDescriptor {
+                label: Some("qr_reflector_bg"),
+                layout: &p.reflector_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: v_temp_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: tau_scalar_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: work_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: u.reflector.as_entire_binding(),
+                    },
+                ],
+            },
+        )?;
         let mut enc = dev.create_command_encoder(&Default::default());
         {
             let mut pass = enc.begin_compute_pass(&Default::default());
@@ -493,6 +505,7 @@ fn dispatch_apply_reflectors(
         }
         queue.submit(std::iter::once(enc.finish()));
     }
+    Ok(())
 }
 
 fn dispatch_extract_r(
@@ -504,9 +517,9 @@ fn dispatch_extract_r(
     r_offdiag_buf: &wgpu::Buffer,
     k: usize,
     elem_size: u64,
-) {
+) -> Result<()> {
     if k == 0 {
-        return;
+        return Ok(());
     }
 
     #[repr(C)]
@@ -533,24 +546,27 @@ fn dispatch_extract_r(
         mapped_at_creation: false,
     });
 
-    let bg = dev.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("qr_extract_bg"),
-        layout: &p.extract_layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: work_buf.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: r_temp_buf.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: u.extract_r.as_entire_binding(),
-            },
-        ],
-    });
+    let bg = create_checked_bind_group(
+        dev,
+        &wgpu::BindGroupDescriptor {
+            label: Some("qr_extract_bg"),
+            layout: &p.extract_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: work_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: r_temp_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: u.extract_r.as_entire_binding(),
+                },
+            ],
+        },
+    )?;
     let mut enc = dev.create_command_encoder(&Default::default());
     {
         let mut pass = enc.begin_compute_pass(&Default::default());
@@ -560,6 +576,7 @@ fn dispatch_extract_r(
     }
     enc.copy_buffer_to_buffer(&r_temp_buf, 0, r_offdiag_buf, r_byte_offset, r_byte_len);
     queue.submit(std::iter::once(enc.finish()));
+    Ok(())
 }
 
 fn dispatch_norm(
@@ -571,7 +588,7 @@ fn dispatch_norm(
     norm_sq_buf: &wgpu::Buffer,
     k: usize,
     m: usize,
-) {
+) -> Result<()> {
     #[repr(C)]
     #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
     struct Params {
@@ -587,24 +604,27 @@ fn dispatch_norm(
         }),
     );
 
-    let bg = dev.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("qr_norm_bg"),
-        layout: &p.norm_layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: work_buf.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: norm_sq_buf.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: u.norm.as_entire_binding(),
-            },
-        ],
-    });
+    let bg = create_checked_bind_group(
+        dev,
+        &wgpu::BindGroupDescriptor {
+            label: Some("qr_norm_bg"),
+            layout: &p.norm_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: work_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: norm_sq_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: u.norm.as_entire_binding(),
+                },
+            ],
+        },
+    )?;
     let mut enc = dev.create_command_encoder(&Default::default());
     {
         let mut pass = enc.begin_compute_pass(&Default::default());
@@ -613,6 +633,7 @@ fn dispatch_norm(
         pass.dispatch_workgroups(1, 1, 1);
     }
     queue.submit(std::iter::once(enc.finish()));
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -629,7 +650,7 @@ fn dispatch_householder(
     k: usize,
     m: usize,
     elem_size: u64,
-) {
+) -> Result<()> {
     #[repr(C)]
     #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
     struct Params {
@@ -668,36 +689,39 @@ fn dispatch_householder(
         mapped_at_creation: false,
     });
 
-    let bg = dev.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("qr_hh_bg"),
-        layout: &p.hh_layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: work_buf.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: norm_sq_buf.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: v_out_buf.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 3,
-                resource: tau_out_buf.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 4,
-                resource: diag_out_buf.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 5,
-                resource: u.householder.as_entire_binding(),
-            },
-        ],
-    });
+    let bg = create_checked_bind_group(
+        dev,
+        &wgpu::BindGroupDescriptor {
+            label: Some("qr_hh_bg"),
+            layout: &p.hh_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: work_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: norm_sq_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: v_out_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: tau_out_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: diag_out_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: u.householder.as_entire_binding(),
+                },
+            ],
+        },
+    )?;
     let mut enc = dev.create_command_encoder(&Default::default());
     {
         let mut pass = enc.begin_compute_pass(&Default::default());
@@ -709,4 +733,5 @@ fn dispatch_householder(
     enc.copy_buffer_to_buffer(&tau_out_buf, 0, tau_buf, (k as u64) * elem_size, 4);
     enc.copy_buffer_to_buffer(&diag_out_buf, 0, diag_buf, (k as u64) * elem_size, 4);
     queue.submit(std::iter::once(enc.finish()));
+    Ok(())
 }

@@ -74,7 +74,7 @@ pub(crate) fn launch_hypot(
     });
     let pipeline = cache.get_or_create_pipeline("hypot_f32", "hypot_f32", &module, &layout);
     let bindings =
-        cache.create_bind_group(&layout, &[&a_buffer, &b_buffer, &params_buffer, output]);
+        cache.create_bind_group(&layout, &[&a_buffer, &b_buffer, &params_buffer, output])?;
     let mut encoder =
         client
             .wgpu_device()

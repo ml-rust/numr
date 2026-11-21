@@ -86,7 +86,7 @@ pub fn launch_reduce_op(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_dynamic_pipeline(module_key, &entry_point, &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -153,7 +153,7 @@ pub fn launch_full_reduce_op(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_dynamic_pipeline(module_key, &entry_point, &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -207,7 +207,7 @@ pub fn launch_argreduce_op(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_dynamic_pipeline(module_key, &entry_point, &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -253,7 +253,7 @@ pub fn launch_softmax_op(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline("reduce_f32", "softmax_f32", &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -301,7 +301,7 @@ pub fn launch_softmax_bwd_op(
         num_readonly_storage: 2,
     });
     let pipeline = cache.get_or_create_pipeline("reduce_f32", "softmax_bwd_f32", &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[grad, output, d_input, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[grad, output, d_input, params_buffer])?;
 
     let mut encoder = cache
         .device()

@@ -37,7 +37,7 @@ pub fn launch_lu_decompose(
     let bind_group = cache.create_bind_group(
         &layout,
         &[lu_matrix, pivots, num_swaps, singular_flag, params_buffer],
-    );
+    )?;
 
     let mut encoder = cache
         .device()
@@ -79,7 +79,7 @@ pub fn launch_cholesky_decompose(
     let pipeline =
         cache.get_or_create_pipeline("linalg", "cholesky_decompose_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[l_matrix, not_pd_flag, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[l_matrix, not_pd_flag, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -127,7 +127,7 @@ pub fn launch_qr_decompose(
     );
 
     let bind_group =
-        cache.create_bind_group(&layout, &[q_matrix, r_matrix, workspace, params_buffer]);
+        cache.create_bind_group(&layout, &[q_matrix, r_matrix, workspace, params_buffer])?;
 
     let mut encoder = cache
         .device()

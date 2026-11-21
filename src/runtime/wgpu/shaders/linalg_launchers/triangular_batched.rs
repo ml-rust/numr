@@ -73,7 +73,7 @@ pub fn launch_triangular_solve_batched(
     let pipeline =
         cache.get_or_create_pipeline("linalg_triangular_batched", entry_point, &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[a, b, x, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[a, b, x, params_buffer])?;
 
     let mut encoder = cache
         .device()

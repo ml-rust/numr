@@ -79,7 +79,7 @@ pub fn launch_topk(
     let bind_group = cache.create_bind_group(
         &layout,
         &[input, values_output, indices_output, params_buffer],
-    );
+    )?;
 
     let mut encoder = cache
         .device()
@@ -126,7 +126,8 @@ pub fn launch_searchsorted(
     });
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[sorted_seq, values, output, params_buffer]);
+    let bind_group =
+        cache.create_bind_group(&layout, &[sorted_seq, values, output, params_buffer])?;
 
     let mut encoder = cache
         .device()

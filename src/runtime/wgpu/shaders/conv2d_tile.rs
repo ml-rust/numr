@@ -12,6 +12,7 @@
 use wgpu::{Buffer, Queue};
 
 use super::pipeline::{LayoutKey, PipelineCache};
+use crate::error::Result;
 use crate::ops::ConvLayout;
 
 /// Output pixels per tile along W. Matches `TILE_COLUMNS` in the WGSL.
@@ -158,7 +159,7 @@ pub(crate) fn launch_conv2d_tile(
     shader: Conv2dTileShader,
     bindings: &Conv2dTileBindings<'_>,
     grid: TileGrid,
-) {
+) -> Result<()> {
     let (name, source) = match shader {
         Conv2dTileShader::Scalar => ("conv2d_tile_scalar", SCALAR_SHADER),
         Conv2dTileShader::Vec4 => ("conv2d_tile_vec4", VEC4_SHADER),
@@ -181,7 +182,7 @@ pub(crate) fn launch_conv2d_tile(
             bindings.output,
             bindings.params,
         ],
-    );
+    )?;
 
     let mut encoder = cache
         .device()
@@ -196,6 +197,7 @@ pub(crate) fn launch_conv2d_tile(
         pass.dispatch_workgroups(grid.x, grid.y, grid.z);
     }
     queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
 }
 
 #[cfg(test)]

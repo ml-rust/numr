@@ -29,7 +29,7 @@ pub fn launch_forward_sub(
     let pipeline =
         cache.get_or_create_pipeline("linalg_solvers", "forward_sub_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[l, b, x, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[l, b, x, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -72,7 +72,7 @@ pub fn launch_backward_sub(
     let pipeline =
         cache.get_or_create_pipeline("linalg_solvers", "backward_sub_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[u, b, x, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[u, b, x, params_buffer])?;
 
     let mut encoder = cache
         .device()

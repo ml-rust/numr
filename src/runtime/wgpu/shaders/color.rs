@@ -179,7 +179,7 @@ pub fn launch_color(
     let pipeline = cache.get_or_create_dynamic_pipeline(&key, op, &module, &layout);
     let mut bound: Vec<&Buffer> = buffers.iter().map(|b| &**b).collect();
     bound.push(params);
-    let bind_group = cache.create_bind_group(&layout, &bound);
+    let bind_group = cache.create_bind_group(&layout, &bound)?;
 
     let (x, y) = dispatch_grid(total);
     let mut encoder = cache

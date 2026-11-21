@@ -39,7 +39,7 @@ pub fn launch_exp_quasi_triangular(
         &layout,
     );
 
-    let bind_group = cache.create_bind_group(&layout, &[t, result, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[t, result, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -98,7 +98,8 @@ pub fn launch_sqrt_quasi_triangular(
         &layout,
     );
 
-    let bind_group = cache.create_bind_group(&layout, &[input, y, z, work1, work2, params_buffer]);
+    let bind_group =
+        cache.create_bind_group(&layout, &[input, y, z, work1, work2, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -158,7 +159,7 @@ pub fn launch_log_quasi_triangular(
     );
 
     let bind_group =
-        cache.create_bind_group(&layout, &[input, work, result, temp, xpower, params_buffer]);
+        cache.create_bind_group(&layout, &[input, work, result, temp, xpower, params_buffer])?;
 
     let mut encoder = cache
         .device()

@@ -94,7 +94,7 @@ pub fn launch_complex_op(
     let pipeline = cache.get_or_create_pipeline(module_name, entry_point, &module, &layout);
 
     // Create bind group
-    let bind_group = cache.create_bind_group(&layout, &[input_buf, output_buf, params_buf]);
+    let bind_group = cache.create_bind_group(&layout, &[input_buf, output_buf, params_buf])?;
 
     // Create command encoder
     let mut encoder = cache
@@ -152,7 +152,7 @@ pub fn launch_angle_real(
 
     let pipeline =
         cache.get_or_create_pipeline("angle_real_f32", "angle_real_f32", &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[input_buf, output_buf, params_buf]);
+    let bind_group = cache.create_bind_group(&layout, &[input_buf, output_buf, params_buf])?;
 
     let mut encoder = cache
         .device()
@@ -209,7 +209,7 @@ pub fn launch_from_real_imag(
     let pipeline =
         cache.get_or_create_pipeline("from_real_imag_f32", "from_real_imag_f32", &module, &layout);
     let bind_group =
-        cache.create_bind_group(&layout, &[real_buf, imag_buf, output_buf, params_buf]);
+        cache.create_bind_group(&layout, &[real_buf, imag_buf, output_buf, params_buf])?;
 
     let mut encoder = cache
         .device()
@@ -266,7 +266,7 @@ pub fn launch_complex_mul_real(
     let pipeline =
         cache.get_or_create_pipeline("complex64_mul_real", "complex64_mul_real", &module, &layout);
     let bind_group =
-        cache.create_bind_group(&layout, &[complex_buf, real_buf, output_buf, params_buf]);
+        cache.create_bind_group(&layout, &[complex_buf, real_buf, output_buf, params_buf])?;
 
     let mut encoder = cache
         .device()
@@ -323,7 +323,7 @@ pub fn launch_complex_div_real(
     let pipeline =
         cache.get_or_create_pipeline("complex64_div_real", "complex64_div_real", &module, &layout);
     let bind_group =
-        cache.create_bind_group(&layout, &[complex_buf, real_buf, output_buf, params_buf]);
+        cache.create_bind_group(&layout, &[complex_buf, real_buf, output_buf, params_buf])?;
 
     let mut encoder = cache
         .device()

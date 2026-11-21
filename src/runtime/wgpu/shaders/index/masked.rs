@@ -33,7 +33,7 @@ pub fn launch_masked_fill(
     });
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[input, mask, output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[input, mask, output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -79,7 +79,7 @@ pub fn launch_masked_count(
     });
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[mask, count_result, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[mask, count_result, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -124,7 +124,7 @@ pub fn launch_masked_prefix_sum(
     });
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[mask, prefix_sum, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[mask, prefix_sum, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -173,7 +173,7 @@ pub fn launch_masked_select(
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
     let bind_group =
-        cache.create_bind_group(&layout, &[input, mask, prefix_sum, output, params_buffer]);
+        cache.create_bind_group(&layout, &[input, mask, prefix_sum, output, params_buffer])?;
 
     let mut encoder = cache
         .device()

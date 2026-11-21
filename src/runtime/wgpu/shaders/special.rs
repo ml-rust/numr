@@ -66,7 +66,7 @@ pub fn launch_special_unary(
             });
 
     // Create bind group
-    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, &params_buffer]);
+    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, &params_buffer])?;
 
     // Dispatch
     let mut encoder =
@@ -140,7 +140,7 @@ pub fn launch_special_binary(
 
     // Create bind group
     let bind_group =
-        pipeline_cache.create_bind_group(&layout, &[input_a, input_b, output, &params_buffer]);
+        pipeline_cache.create_bind_group(&layout, &[input_a, input_b, output, &params_buffer])?;
 
     // Dispatch
     let mut encoder =
@@ -217,7 +217,7 @@ pub fn launch_special_ternary(
     let bind_group = pipeline_cache.create_bind_group(
         &layout,
         &[input_a, input_b, input_x, output, &params_buffer],
-    );
+    )?;
 
     // Dispatch
     let mut encoder =
@@ -289,7 +289,7 @@ pub fn launch_special_unary_with_int(
                 usage: wgpu::BufferUsages::UNIFORM,
             });
 
-    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, &params_buffer]);
+    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, &params_buffer])?;
 
     let mut encoder =
         pipeline_cache
@@ -356,7 +356,7 @@ pub fn launch_special_unary_with_two_ints(
                 usage: wgpu::BufferUsages::UNIFORM,
             });
 
-    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, &params_buffer]);
+    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, &params_buffer])?;
 
     let mut encoder =
         pipeline_cache
@@ -425,7 +425,7 @@ pub fn launch_special_binary_with_two_ints(
             });
 
     let bind_group =
-        pipeline_cache.create_bind_group(&layout, &[input_a, input_b, output, &params_buffer]);
+        pipeline_cache.create_bind_group(&layout, &[input_a, input_b, output, &params_buffer])?;
 
     let mut encoder =
         pipeline_cache
@@ -493,7 +493,7 @@ pub fn launch_special_unary_with_2f32(
                 usage: wgpu::BufferUsages::UNIFORM,
             });
 
-    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, &params_buffer]);
+    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, &params_buffer])?;
 
     let mut encoder =
         pipeline_cache
@@ -561,7 +561,7 @@ pub fn launch_special_unary_with_3f32(
                 usage: wgpu::BufferUsages::UNIFORM,
             });
 
-    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, &params_buffer]);
+    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, &params_buffer])?;
 
     let mut encoder =
         pipeline_cache

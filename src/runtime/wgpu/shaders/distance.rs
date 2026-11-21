@@ -70,7 +70,7 @@ pub fn launch_cdist(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, "main", &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[x, y, out, params]);
+    let bind_group = cache.create_bind_group(&layout, &[x, y, out, params])?;
 
     let mut encoder = cache
         .device()
@@ -113,7 +113,7 @@ pub fn launch_pdist(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, "main", &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[x, out, params]);
+    let bind_group = cache.create_bind_group(&layout, &[x, out, params])?;
 
     let mut encoder = cache
         .device()
@@ -156,7 +156,7 @@ pub fn launch_squareform(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, "main", &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[condensed, square, params]);
+    let bind_group = cache.create_bind_group(&layout, &[condensed, square, params])?;
 
     let mut encoder = cache
         .device()
@@ -199,7 +199,7 @@ pub fn launch_squareform_inverse(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, "main", &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[square, condensed, params]);
+    let bind_group = cache.create_bind_group(&layout, &[square, condensed, params])?;
 
     let mut encoder = cache
         .device()

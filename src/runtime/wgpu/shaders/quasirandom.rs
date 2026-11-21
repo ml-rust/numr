@@ -110,7 +110,7 @@ pub fn launch_sobol(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[out, direction_vectors, params]);
+    let bind_group = cache.create_bind_group(&layout, &[out, direction_vectors, params])?;
 
     let mut encoder = cache
         .device()
@@ -218,7 +218,7 @@ pub fn launch_halton(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[out, params]);
+    let bind_group = cache.create_bind_group(&layout, &[out, params])?;
 
     let mut encoder = cache
         .device()
@@ -417,7 +417,7 @@ pub fn launch_latin_hypercube(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[out, params]);
+    let bind_group = cache.create_bind_group(&layout, &[out, params])?;
 
     let mut encoder = cache
         .device()

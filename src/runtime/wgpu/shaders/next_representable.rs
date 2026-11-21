@@ -108,7 +108,7 @@ pub(crate) fn launch_next_representable(
         &module,
         &layout,
     );
-    let bindings = cache.create_bind_group(&layout, &[&input_buffer, &params_buffer, output]);
+    let bindings = cache.create_bind_group(&layout, &[&input_buffer, &params_buffer, output])?;
     let mut encoder = client
         .wgpu_device()
         .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(op) });

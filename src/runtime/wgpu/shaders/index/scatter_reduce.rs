@@ -196,7 +196,7 @@ pub fn launch_scatter_reduce(
         &[src, keys, vals, buffers.dst, buffers.out, &params_buf],
         4,
         grid(cache, dst_numel.div_ceil(WORKGROUP_SIZE as usize) as u32),
-    );
+    )?;
 
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())

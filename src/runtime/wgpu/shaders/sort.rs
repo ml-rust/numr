@@ -199,7 +199,7 @@ pub fn launch_sort(
     let bind_group = cache.create_bind_group(
         &layout,
         &[input, values_output, indices_output, params_buffer],
-    );
+    )?;
 
     let mut encoder = cache
         .device()
@@ -252,7 +252,8 @@ pub fn launch_sort_values_only(
         mapped_at_creation: false,
     });
 
-    let bind_group = cache.create_bind_group(&layout, &[input, output, &dummy_buf, params_buffer]);
+    let bind_group =
+        cache.create_bind_group(&layout, &[input, output, &dummy_buf, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -304,7 +305,7 @@ pub fn launch_argsort(
     });
 
     let bind_group =
-        cache.create_bind_group(&layout, &[input, &dummy_buf, indices_output, params_buffer]);
+        cache.create_bind_group(&layout, &[input, &dummy_buf, indices_output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -352,7 +353,7 @@ pub fn launch_count_nonzero(
     });
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[input, count_output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[input, count_output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -398,7 +399,7 @@ pub fn launch_gather_nonzero(
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
     let bind_group =
-        cache.create_bind_group(&layout, &[input, indices_output, counter, params_buffer]);
+        cache.create_bind_group(&layout, &[input, indices_output, counter, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -443,7 +444,7 @@ pub fn launch_flat_to_multi_index(
     );
 
     let bind_group =
-        cache.create_bind_group(&layout, &[flat_indices, multi_indices, params_buffer]);
+        cache.create_bind_group(&layout, &[flat_indices, multi_indices, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -510,7 +511,8 @@ pub fn launch_count_unique(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[sorted_input, count_output, params_buffer]);
+    let bind_group =
+        cache.create_bind_group(&layout, &[sorted_input, count_output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -575,7 +577,7 @@ pub fn launch_extract_unique(
     let bind_group = cache.create_bind_group(
         &layout,
         &[sorted_input, unique_output, counter, params_buffer],
-    );
+    )?;
 
     let mut encoder = cache
         .device()
@@ -622,7 +624,7 @@ pub fn launch_mark_boundaries(
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
     let bind_group =
-        cache.create_bind_group(&layout, &[sorted_input, boundary_flags, params_buffer]);
+        cache.create_bind_group(&layout, &[sorted_input, boundary_flags, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -679,7 +681,7 @@ pub fn launch_scatter_unique_with_counts(
             counts_output,
             params_buffer,
         ],
-    );
+    )?;
 
     let mut encoder = cache
         .device()

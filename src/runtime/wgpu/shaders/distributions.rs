@@ -72,7 +72,7 @@ pub fn launch_bernoulli(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline("bernoulli_f32", "bernoulli_f32", &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[out, params]);
+    let bind_group = cache.create_bind_group(&layout, &[out, params])?;
 
     let mut encoder = cache
         .device()
@@ -113,7 +113,7 @@ pub fn launch_beta_dist(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline("beta_dist_f32", "beta_dist_f32", &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[out, params]);
+    let bind_group = cache.create_bind_group(&layout, &[out, params])?;
 
     let mut encoder = cache
         .device()
@@ -155,7 +155,7 @@ pub fn launch_gamma_dist(
     });
     let pipeline =
         cache.get_or_create_pipeline("gamma_dist_f32", "gamma_dist_f32", &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[out, params]);
+    let bind_group = cache.create_bind_group(&layout, &[out, params])?;
 
     let mut encoder = cache
         .device()
@@ -197,7 +197,7 @@ pub fn launch_exponential(
     });
     let pipeline =
         cache.get_or_create_pipeline("exponential_f32", "exponential_f32", &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[out, params]);
+    let bind_group = cache.create_bind_group(&layout, &[out, params])?;
 
     let mut encoder = cache
         .device()
@@ -238,7 +238,7 @@ pub fn launch_poisson(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline("poisson_f32", "poisson_f32", &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[out, params]);
+    let bind_group = cache.create_bind_group(&layout, &[out, params])?;
 
     let mut encoder = cache
         .device()
@@ -279,7 +279,7 @@ pub fn launch_binomial(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline("binomial_f32", "binomial_f32", &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[out, params]);
+    let bind_group = cache.create_bind_group(&layout, &[out, params])?;
 
     let mut encoder = cache
         .device()
@@ -320,7 +320,7 @@ pub fn launch_laplace(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline("laplace_f32", "laplace_f32", &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[out, params]);
+    let bind_group = cache.create_bind_group(&layout, &[out, params])?;
 
     let mut encoder = cache
         .device()
@@ -362,7 +362,7 @@ pub fn launch_chi_squared(
     });
     let pipeline =
         cache.get_or_create_pipeline("chi_squared_f32", "chi_squared_f32", &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[out, params]);
+    let bind_group = cache.create_bind_group(&layout, &[out, params])?;
 
     let mut encoder = cache
         .device()
@@ -403,7 +403,7 @@ pub fn launch_student_t(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline("student_t_f32", "student_t_f32", &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[out, params]);
+    let bind_group = cache.create_bind_group(&layout, &[out, params])?;
 
     let mut encoder = cache
         .device()
@@ -445,7 +445,7 @@ pub fn launch_f_distribution(
     });
     let pipeline =
         cache.get_or_create_pipeline("f_distribution_f32", "f_distribution_f32", &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[out, params]);
+    let bind_group = cache.create_bind_group(&layout, &[out, params])?;
 
     let mut encoder = cache
         .device()
@@ -518,7 +518,7 @@ pub fn launch_multinomial_count(
         &module,
         &layout,
     );
-    let bind_group = cache.create_bind_group(&layout, &[cdf, uniforms, counts, params]);
+    let bind_group = cache.create_bind_group(&layout, &[cdf, uniforms, counts, params])?;
 
     let mut encoder = cache
         .device()

@@ -113,7 +113,7 @@ pub(super) fn record(
     buffers: &[&Buffer],
     num_readonly_storage: u32,
     groups: (u32, u32),
-) {
+) -> Result<()> {
     let module = cache.get_or_create_module(module_key, shader);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: (buffers.len() - 1) as u32,
@@ -121,7 +121,7 @@ pub(super) fn record(
         num_readonly_storage,
     });
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, buffers);
+    let bind_group = cache.create_bind_group(&layout, buffers)?;
     let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
         label: Some(entry_point),
         timestamp_writes: None,
@@ -129,6 +129,7 @@ pub(super) fn record(
     pass.set_pipeline(&pipeline);
     pass.set_bind_group(0, Some(&bind_group), &[]);
     pass.dispatch_workgroups(groups.0, groups.1, 1);
+    Ok(())
 }
 
 /// Records each source element's destination key and the sort of the keys.
@@ -225,7 +226,7 @@ pub(super) fn record_sorted_keys(
         &[indices, &keys, &vals, &key_params_buf],
         1,
         grid(cache, n.div_ceil(WORKGROUP_SIZE as usize) as u32),
-    );
+    )?;
 
     // The largest key is `invalid_key`, so its bit length bounds the passes.
     let key_bits = u32::BITS - key_params.invalid_key.leading_zeros();
@@ -248,7 +249,7 @@ pub(super) fn record_sorted_keys(
             &[&keys, &hist, &params_buf],
             1,
             tile_grid,
-        );
+        )?;
         record(
             cache,
             encoder,
@@ -258,7 +259,7 @@ pub(super) fn record_sorted_keys(
             &[&hist, &totals, &params_buf],
             0,
             (RADIX as u32, 1),
-        );
+        )?;
         record(
             cache,
             encoder,
@@ -276,7 +277,7 @@ pub(super) fn record_sorted_keys(
             ],
             4,
             tile_grid,
-        );
+        )?;
         std::mem::swap(&mut keys, &mut keys_alt);
         std::mem::swap(&mut vals, &mut vals_alt);
     }

@@ -111,7 +111,7 @@ pub fn launch_binary_op(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_dynamic_pipeline(module_key, &entry_point, &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[a, b, out, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[a, b, out, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -171,7 +171,7 @@ pub fn launch_broadcast_binary_op(
     let bind_group = cache.create_bind_group(
         &layout,
         &[a, b, out, a_strides, b_strides, out_strides, params_buffer],
-    );
+    )?;
 
     let mut encoder = cache
         .device()
@@ -280,7 +280,7 @@ pub fn launch_unary_op(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_dynamic_pipeline(module_key, &entry_point, &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[a, out, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[a, out, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -359,7 +359,7 @@ pub fn launch_scalar_op(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_dynamic_pipeline(module_key, &entry_point, &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[a, out, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[a, out, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -413,7 +413,7 @@ pub fn launch_compare_op(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_dynamic_pipeline(module_key, &entry_point, &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[a, b, out, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[a, b, out, params_buffer])?;
 
     let mut encoder = cache
         .device()

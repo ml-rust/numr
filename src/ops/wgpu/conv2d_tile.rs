@@ -190,7 +190,7 @@ impl TileCall<'_> {
                 params: &params,
             },
             self.grid,
-        );
+        )?;
         Ok(())
     }
 

@@ -51,7 +51,7 @@ pub fn launch_bincount(
             num_readonly_storage: 2, // input and weights are read-only
         });
         let bind_group =
-            cache.create_bind_group(&layout, &[input, weights_buf, output, params_buffer]);
+            cache.create_bind_group(&layout, &[input, weights_buf, output, params_buffer])?;
         (layout, bind_group)
     } else {
         let layout = cache.get_or_create_layout(LayoutKey {
@@ -59,7 +59,7 @@ pub fn launch_bincount(
             num_uniform_buffers: 1,
             num_readonly_storage: 1, // input is read-only
         });
-        let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
+        let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer])?;
         (layout, bind_group)
     };
 

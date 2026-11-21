@@ -86,7 +86,7 @@ pub fn launch_gemm_bias_act(
     let pipeline =
         cache.get_or_create_pipeline("gemm_bias_act_f32", "gemm_bias_act_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[a, b, bias, c, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[a, b, bias, c, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -140,7 +140,7 @@ pub fn launch_gemm_bias_act_batched(
         &layout,
     );
 
-    let bind_group = cache.create_bind_group(&layout, &[a, b, bias, c, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[a, b, bias, c, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -195,7 +195,7 @@ pub fn launch_gemm_bias_residual(
         &layout,
     );
 
-    let bind_group = cache.create_bind_group(&layout, &[a, b, bias, residual, c, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[a, b, bias, residual, c, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -251,7 +251,7 @@ pub fn launch_gemm_bias_residual_batched(
         &layout,
     );
 
-    let bind_group = cache.create_bind_group(&layout, &[a, b, bias, residual, c, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[a, b, bias, residual, c, params_buffer])?;
 
     let mut encoder = cache
         .device()

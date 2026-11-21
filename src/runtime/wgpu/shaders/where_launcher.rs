@@ -220,7 +220,7 @@ pub fn launch_where_generic_op(
     });
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[cond, x, y, out, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[cond, x, y, out, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -286,7 +286,7 @@ pub fn launch_where_broadcast_op(
             out_shape,
             params_buffer,
         ],
-    );
+    )?;
 
     let mut encoder = cache
         .device()

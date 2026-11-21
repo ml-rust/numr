@@ -54,7 +54,7 @@ pub fn launch_split_lu_count(
     let bind_group = cache.create_bind_group(
         &layout,
         &[row_ptrs, col_indices, l_counts, u_counts, params_buffer],
-    );
+    )?;
 
     let mut encoder = cache
         .device()
@@ -130,7 +130,7 @@ pub fn launch_split_lu_scatter_l(
             l_values,
             params_buffer,
         ],
-    );
+    )?;
 
     let mut encoder = cache
         .device()
@@ -206,7 +206,7 @@ pub fn launch_split_lu_scatter_u(
             u_values,
             params_buffer,
         ],
-    );
+    )?;
 
     let mut encoder = cache
         .device()
@@ -262,7 +262,7 @@ pub fn launch_extract_lower_count(
     );
 
     let bind_group =
-        cache.create_bind_group(&layout, &[row_ptrs, col_indices, l_counts, params_buffer]);
+        cache.create_bind_group(&layout, &[row_ptrs, col_indices, l_counts, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -338,7 +338,7 @@ pub fn launch_extract_lower_scatter(
             l_values,
             params_buffer,
         ],
-    );
+    )?;
 
     let mut encoder = cache
         .device()

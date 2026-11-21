@@ -55,7 +55,7 @@ fn cast_i64_to_i32(@builtin(global_invocation_id) gid: vec3<u32>) {
     let pipeline =
         cache.get_or_create_pipeline("cast_i64_to_i32", "cast_i64_to_i32", &cast_module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[input_i64, output_i32]);
+    let bind_group = cache.create_bind_group(&layout, &[input_i64, output_i32])?;
 
     let mut encoder = cache
         .device()
@@ -171,7 +171,7 @@ fn compute_levels_lower_iter(@builtin(global_invocation_id) gid: vec3<u32>) {
     let bind_group = cache.create_bind_group(
         &layout,
         &[row_ptrs, col_indices, levels, changed, &params_buffer],
-    );
+    )?;
 
     let mut encoder = cache
         .device()
@@ -276,7 +276,7 @@ fn compute_levels_upper_iter(@builtin(global_invocation_id) gid: vec3<u32>) {
     let bind_group = cache.create_bind_group(
         &layout,
         &[row_ptrs, col_indices, levels, changed, &params_buffer],
-    );
+    )?;
 
     let mut encoder = cache
         .device()
@@ -381,7 +381,7 @@ fn compute_levels_ilu_iter(@builtin(global_invocation_id) gid: vec3<u32>) {
     let bind_group = cache.create_bind_group(
         &layout,
         &[row_ptrs, col_indices, levels, changed, &params_buffer],
-    );
+    )?;
 
     let mut encoder = cache
         .device()
@@ -481,7 +481,7 @@ fn scatter_by_level(@builtin(global_invocation_id) gid: vec3<u32>) {
             level_rows,
             &params_buffer,
         ],
-    );
+    )?;
 
     let mut encoder = cache
         .device()

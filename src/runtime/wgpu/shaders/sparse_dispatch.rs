@@ -45,7 +45,7 @@ pub(super) fn run_sparse_kernel(
     let mut buffers: Vec<&Buffer> = Vec::with_capacity(storage.len() + 1);
     buffers.extend_from_slice(storage);
     buffers.push(uniform);
-    let bind_group = cache.create_bind_group(&layout, &buffers);
+    let bind_group = cache.create_bind_group(&layout, &buffers)?;
 
     let mut encoder = cache
         .device()

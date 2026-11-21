@@ -57,7 +57,7 @@ pub fn launch_rms_norm(
     });
     let pipeline = cache.get_or_create_pipeline("norm", "rms_norm_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[input, weight, output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[input, weight, output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -109,7 +109,7 @@ pub fn launch_layer_norm(
     let pipeline = cache.get_or_create_pipeline("norm", "layer_norm_f32", &module, &layout);
 
     let bind_group =
-        cache.create_bind_group(&layout, &[input, weight, bias, output, params_buffer]);
+        cache.create_bind_group(&layout, &[input, weight, bias, output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -155,7 +155,7 @@ pub fn launch_layer_norm_no_bias(
     });
     let pipeline = cache.get_or_create_pipeline("norm", "layer_norm_no_bias_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[input, weight, output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[input, weight, output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -209,7 +209,7 @@ pub fn launch_group_norm(
     let pipeline = cache.get_or_create_pipeline("norm", "group_norm_f32", &module, &layout);
 
     let bind_group =
-        cache.create_bind_group(&layout, &[input, weight, bias, output, params_buffer]);
+        cache.create_bind_group(&layout, &[input, weight, bias, output, params_buffer])?;
 
     let mut encoder = cache
         .device()

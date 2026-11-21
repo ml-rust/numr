@@ -36,7 +36,7 @@ pub fn launch_svd_jacobi(
     });
     let pipeline = cache.get_or_create_pipeline("linalg_svd", "svd_jacobi_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[b, v, s, converged_flag, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[b, v, s, converged_flag, params_buffer])?;
 
     let mut encoder = cache
         .device()

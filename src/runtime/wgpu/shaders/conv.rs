@@ -71,7 +71,7 @@ pub fn launch_conv1d(
     let pipeline = cache.get_or_create_pipeline("conv1d_f32", "conv1d_f32", &module, &layout);
 
     let bind_group =
-        cache.create_bind_group(&layout, &[input, weight, bias, output, params_buffer]);
+        cache.create_bind_group(&layout, &[input, weight, bias, output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -135,7 +135,7 @@ pub fn launch_conv_transpose1d(
     );
 
     let bind_group =
-        cache.create_bind_group(&layout, &[input, weight, bias, output, params_buffer]);
+        cache.create_bind_group(&layout, &[input, weight, bias, output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -195,7 +195,7 @@ pub fn launch_conv2d(
     let pipeline = cache.get_or_create_pipeline("conv2d_f32", "conv2d_f32", &module, &layout);
 
     let bind_group =
-        cache.create_bind_group(&layout, &[input, weight, bias, output, params_buffer]);
+        cache.create_bind_group(&layout, &[input, weight, bias, output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -260,7 +260,7 @@ pub fn launch_depthwise_conv2d(
     );
 
     let bind_group =
-        cache.create_bind_group(&layout, &[input, weight, bias, output, params_buffer]);
+        cache.create_bind_group(&layout, &[input, weight, bias, output, params_buffer])?;
 
     let mut encoder = cache
         .device()

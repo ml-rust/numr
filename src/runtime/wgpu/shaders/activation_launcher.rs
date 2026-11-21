@@ -36,7 +36,7 @@ pub fn launch_leaky_relu(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline("scalar_f32", "leaky_relu_f32", &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[a, out, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[a, out, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -77,7 +77,7 @@ pub fn launch_elu(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline("scalar_f32", "elu_f32", &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[a, out, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[a, out, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -119,7 +119,7 @@ pub fn launch_clamp_op(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[a, out, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[a, out, params_buffer])?;
 
     let mut encoder = cache
         .device()

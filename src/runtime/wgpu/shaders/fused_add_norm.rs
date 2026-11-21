@@ -65,7 +65,7 @@ pub fn launch_fused_add_rms_norm(
     let bind_group = cache.create_bind_group(
         &layout,
         &[input, residual, weight, output, pre_norm, params_buffer],
-    );
+    )?;
 
     let mut encoder = cache
         .device()
@@ -135,7 +135,7 @@ pub fn launch_fused_add_layer_norm(
             pre_norm,
             params_buffer,
         ],
-    );
+    )?;
 
     let mut encoder = cache
         .device()
@@ -206,7 +206,7 @@ pub fn launch_fused_add_rms_norm_bwd(
             d_weight_scratch,
             params_buffer,
         ],
-    );
+    )?;
 
     let mut encoder = cache
         .device()
@@ -282,7 +282,7 @@ pub fn launch_fused_add_layer_norm_bwd(
             d_bias_scratch,
             params_buffer,
         ],
-    );
+    )?;
 
     let mut encoder = cache
         .device()
@@ -332,7 +332,7 @@ pub fn launch_reduce_sum_rows(
     let pipeline =
         cache.get_or_create_pipeline("fused_add_norm", "reduce_sum_rows_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer])?;
 
     let mut encoder = cache
         .device()

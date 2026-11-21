@@ -98,9 +98,9 @@ pub fn launch_resize_pass(
     let layout = cache.get_or_create_layout(layout_key);
     let pipeline = cache.get_or_create_pipeline(module_key, ENTRY, &module, &layout);
     let bind_group = if shared {
-        cache.create_bind_group(&layout, &[dst, params])
+        cache.create_bind_group(&layout, &[dst, params])?
     } else {
-        cache.create_bind_group(&layout, &[src, dst, params])
+        cache.create_bind_group(&layout, &[src, dst, params])?
     };
 
     let (x, y) = dispatch_grid(total);

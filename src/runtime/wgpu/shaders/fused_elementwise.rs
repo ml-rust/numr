@@ -116,7 +116,7 @@ fn launch_ternary(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[a, b, c, out, &params_buf]);
+    let bind_group = cache.create_bind_group(&layout, &[a, b, c, out, &params_buf])?;
 
     let mut encoder = cache
         .device()
@@ -209,7 +209,7 @@ pub fn launch_fused_mul_add_scalar(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[a, out, &params_buf]);
+    let bind_group = cache.create_bind_group(&layout, &[a, out, &params_buf])?;
 
     let mut encoder = cache
         .device()

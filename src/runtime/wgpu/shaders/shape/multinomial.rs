@@ -60,7 +60,7 @@ pub fn launch_multinomial_with_replacement(
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[probs, out, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[probs, out, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -128,7 +128,7 @@ pub fn launch_multinomial_without_replacement(
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[probs, out, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[probs, out, params_buffer])?;
 
     let mut encoder = cache
         .device()

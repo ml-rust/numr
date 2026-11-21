@@ -156,7 +156,7 @@ pub fn launch_semiring_matmul(
     });
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[a, b, c, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[a, b, c, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -204,7 +204,7 @@ pub fn launch_batched_semiring_matmul(
     });
     let pipeline = cache.get_or_create_pipeline(module_key, batched_entry_point, &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[a, b, c, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[a, b, c, params_buffer])?;
 
     let mut encoder = cache
         .device()

@@ -63,7 +63,7 @@ pub fn launch_dsmm_csc(
     let bind_group = cache.create_bind_group(
         &layout,
         &[a, col_ptrs, row_indices, b_values, c, params_buffer],
-    );
+    )?;
 
     let total_elements = m * n;
 
@@ -135,7 +135,7 @@ pub fn launch_spgemm_symbolic(
             bitmap,
             params_buffer,
         ],
-    );
+    )?;
 
     let mut encoder = cache
         .device()
@@ -211,7 +211,7 @@ pub fn launch_spgemm_accumulate(
             flags,
             params_buffer,
         ],
-    );
+    )?;
 
     let mut encoder = cache
         .device()
@@ -269,7 +269,7 @@ pub fn launch_spgemm_scatter(
             c_values,
             params_buffer,
         ],
-    );
+    )?;
 
     let mut encoder = cache
         .device()

@@ -257,7 +257,7 @@ pub fn launch_threefry_uniform(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[out, params]);
+    let bind_group = cache.create_bind_group(&layout, &[out, params])?;
 
     let mut encoder = cache
         .device()
@@ -300,7 +300,7 @@ pub fn launch_threefry_randn(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[out, params]);
+    let bind_group = cache.create_bind_group(&layout, &[out, params])?;
 
     let mut encoder = cache
         .device()

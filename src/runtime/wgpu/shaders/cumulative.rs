@@ -104,7 +104,7 @@ pub fn launch_cumsum(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -162,7 +162,7 @@ pub fn launch_cumsum_strided(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -212,7 +212,7 @@ pub fn launch_cumprod(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -270,7 +270,7 @@ pub fn launch_cumprod_strided(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -314,7 +314,7 @@ pub fn launch_logsumexp(
     });
     let pipeline = cache.get_or_create_pipeline("logsumexp_f32", "logsumexp_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -361,7 +361,7 @@ pub fn launch_logsumexp_strided(
         &layout,
     );
 
-    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer])?;
 
     let mut encoder = cache
         .device()

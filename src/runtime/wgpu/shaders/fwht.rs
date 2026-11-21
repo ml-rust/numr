@@ -97,7 +97,7 @@ pub fn launch_fwht_local(
     });
     let pipeline =
         cache.get_or_create_dynamic_pipeline(&module_key, "fwht_local_f32", &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[input, signs, output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[input, signs, output, params_buffer])?;
 
     let (gx, gy) = grid_2d(total.div_ceil(chunk), "fwht")?;
 
@@ -142,7 +142,7 @@ pub fn launch_fwht_global(
     });
     let pipeline =
         cache.get_or_create_pipeline("fwht_global_f32", "fwht_global_f32", &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[output, params_buffer])?;
 
     let groups = pairs.div_ceil(WORKGROUP_SIZE as usize);
     let (gx, gy) = grid_2d(groups, "fwht")?;

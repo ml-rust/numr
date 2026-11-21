@@ -26,6 +26,8 @@ use crate::error::{Error, Result};
 use crate::runtime::wgpu::client::get_buffer;
 #[cfg(feature = "wgpu")]
 use crate::runtime::wgpu::shaders::LayoutKey;
+#[cfg(feature = "wgpu")]
+use crate::runtime::wgpu::shaders::create_checked_bind_group;
 use crate::runtime::wgpu::shaders::linear_grid::dispatch_linear;
 #[cfg(feature = "wgpu")]
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
@@ -329,28 +331,31 @@ fn run_factorization_f32(
             };
             queue.write_buffer(&scatter_params_buf, 0, bytemuck::bytes_of(&params));
 
-            let bind_group = wgpu_device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("scatter_bind_group"),
-                layout: &scatter_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: a_values_buf.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: a_row_indices_buf.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: work_buf.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: scatter_params_buf.as_entire_binding(),
-                    },
-                ],
-            });
+            let bind_group = create_checked_bind_group(
+                &wgpu_device,
+                &wgpu::BindGroupDescriptor {
+                    label: Some("scatter_bind_group"),
+                    layout: &scatter_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: a_values_buf.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: a_row_indices_buf.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: work_buf.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: scatter_params_buf.as_entire_binding(),
+                        },
+                    ],
+                },
+            )?;
 
             let mut encoder = wgpu_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("scatter_encoder"),
@@ -391,28 +396,31 @@ fn run_factorization_f32(
                 };
                 queue.write_buffer(&axpy_params_buf, 0, bytemuck::bytes_of(&params));
 
-                let bind_group = wgpu_device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("axpy_bind_group"),
-                    layout: &axpy_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: l_values_buf.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: l_row_indices_buf.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: work_buf.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: axpy_params_buf.as_entire_binding(),
-                        },
-                    ],
-                });
+                let bind_group = create_checked_bind_group(
+                    &wgpu_device,
+                    &wgpu::BindGroupDescriptor {
+                        label: Some("axpy_bind_group"),
+                        layout: &axpy_layout,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: l_values_buf.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: l_row_indices_buf.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 2,
+                                resource: work_buf.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 3,
+                                resource: axpy_params_buf.as_entire_binding(),
+                            },
+                        ],
+                    },
+                )?;
 
                 let mut encoder =
                     wgpu_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -454,28 +462,31 @@ fn run_factorization_f32(
             };
             queue.write_buffer(&gather_params_buf, 0, bytemuck::bytes_of(&params));
 
-            let bind_group = wgpu_device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("gather_u_bind_group"),
-                layout: &gather_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: work_buf.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: u_row_indices_buf.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: u_values_buf.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: gather_params_buf.as_entire_binding(),
-                    },
-                ],
-            });
+            let bind_group = create_checked_bind_group(
+                &wgpu_device,
+                &wgpu::BindGroupDescriptor {
+                    label: Some("gather_u_bind_group"),
+                    layout: &gather_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: work_buf.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: u_row_indices_buf.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: u_values_buf.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: gather_params_buf.as_entire_binding(),
+                        },
+                    ],
+                },
+            )?;
 
             let mut encoder = wgpu_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("gather_u_encoder"),
@@ -507,28 +518,31 @@ fn run_factorization_f32(
             };
             queue.write_buffer(&gather_params_buf, 0, bytemuck::bytes_of(&gather_params));
 
-            let gather_bind_group = wgpu_device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("gather_l_bind_group"),
-                layout: &gather_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: work_buf.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: l_row_indices_buf.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: l_values_buf.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: gather_params_buf.as_entire_binding(),
-                    },
-                ],
-            });
+            let gather_bind_group = create_checked_bind_group(
+                &wgpu_device,
+                &wgpu::BindGroupDescriptor {
+                    label: Some("gather_l_bind_group"),
+                    layout: &gather_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: work_buf.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: l_row_indices_buf.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: l_values_buf.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: gather_params_buf.as_entire_binding(),
+                        },
+                    ],
+                },
+            )?;
 
             let mut encoder = wgpu_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("gather_l_encoder"),
@@ -553,20 +567,23 @@ fn run_factorization_f32(
             };
             queue.write_buffer(&divide_params_buf, 0, bytemuck::bytes_of(&divide_params));
 
-            let divide_bind_group = wgpu_device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("divide_bind_group"),
-                layout: &divide_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: l_values_buf.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: divide_params_buf.as_entire_binding(),
-                    },
-                ],
-            });
+            let divide_bind_group = create_checked_bind_group(
+                &wgpu_device,
+                &wgpu::BindGroupDescriptor {
+                    label: Some("divide_bind_group"),
+                    layout: &divide_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: l_values_buf.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: divide_params_buf.as_entire_binding(),
+                        },
+                    ],
+                },
+            )?;
 
             let mut encoder = wgpu_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("divide_encoder"),
@@ -872,28 +889,31 @@ pub fn sparse_lu_solve_wgpu(
 
     // Find L diagonals
     {
-        let bind_group = wgpu_device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("find_diag_l_bind_group"),
-            layout: &find_diag_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: l_col_ptrs_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: l_row_indices_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: l_diag_ptr_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: find_diag_params_buf.as_entire_binding(),
-                },
-            ],
-        });
+        let bind_group = create_checked_bind_group(
+            &wgpu_device,
+            &wgpu::BindGroupDescriptor {
+                label: Some("find_diag_l_bind_group"),
+                layout: &find_diag_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: l_col_ptrs_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: l_row_indices_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: l_diag_ptr_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: find_diag_params_buf.as_entire_binding(),
+                    },
+                ],
+            },
+        )?;
 
         let mut encoder = wgpu_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("find_diag_l_encoder"),
@@ -912,28 +932,31 @@ pub fn sparse_lu_solve_wgpu(
 
     // Find U diagonals
     {
-        let bind_group = wgpu_device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("find_diag_u_bind_group"),
-            layout: &find_diag_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: u_col_ptrs_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: u_row_indices_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: u_diag_ptr_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: find_diag_params_buf.as_entire_binding(),
-                },
-            ],
-        });
+        let bind_group = create_checked_bind_group(
+            &wgpu_device,
+            &wgpu::BindGroupDescriptor {
+                label: Some("find_diag_u_bind_group"),
+                layout: &find_diag_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: u_col_ptrs_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: u_row_indices_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: u_diag_ptr_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: find_diag_params_buf.as_entire_binding(),
+                    },
+                ],
+            },
+        )?;
 
         let mut encoder = wgpu_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("find_diag_u_encoder"),
@@ -986,28 +1009,31 @@ pub fn sparse_lu_solve_wgpu(
     queue.write_buffer(&perm_params_buf, 0, bytemuck::bytes_of(&perm_params));
 
     {
-        let bind_group = wgpu_device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("perm_bind_group"),
-            layout: &perm_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: b_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: row_perm_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: y_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: perm_params_buf.as_entire_binding(),
-                },
-            ],
-        });
+        let bind_group = create_checked_bind_group(
+            &wgpu_device,
+            &wgpu::BindGroupDescriptor {
+                label: Some("perm_bind_group"),
+                layout: &perm_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: b_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: row_perm_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: y_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: perm_params_buf.as_entire_binding(),
+                    },
+                ],
+            },
+        )?;
 
         let mut encoder = wgpu_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("perm_encoder"),
@@ -1066,40 +1092,43 @@ pub fn sparse_lu_solve_wgpu(
         };
         queue.write_buffer(&lower_params_buf, 0, bytemuck::bytes_of(&params));
 
-        let bind_group = wgpu_device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("lower_bind_group"),
-            layout: &lower_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: l_level_cols_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: l_col_ptrs_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: l_row_indices_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: l_values_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: l_diag_ptr_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: y_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 6,
-                    resource: lower_params_buf.as_entire_binding(),
-                },
-            ],
-        });
+        let bind_group = create_checked_bind_group(
+            &wgpu_device,
+            &wgpu::BindGroupDescriptor {
+                label: Some("lower_bind_group"),
+                layout: &lower_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: l_level_cols_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: l_col_ptrs_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: l_row_indices_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: l_values_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: l_diag_ptr_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: y_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 6,
+                        resource: lower_params_buf.as_entire_binding(),
+                    },
+                ],
+            },
+        )?;
 
         let mut encoder = wgpu_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("lower_encoder"),
@@ -1158,40 +1187,43 @@ pub fn sparse_lu_solve_wgpu(
         };
         queue.write_buffer(&upper_params_buf, 0, bytemuck::bytes_of(&params));
 
-        let bind_group = wgpu_device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("upper_bind_group"),
-            layout: &upper_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: u_level_cols_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: u_col_ptrs_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: u_row_indices_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: u_values_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: u_diag_ptr_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: y_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 6,
-                    resource: upper_params_buf.as_entire_binding(),
-                },
-            ],
-        });
+        let bind_group = create_checked_bind_group(
+            &wgpu_device,
+            &wgpu::BindGroupDescriptor {
+                label: Some("upper_bind_group"),
+                layout: &upper_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: u_level_cols_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: u_col_ptrs_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: u_row_indices_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: u_values_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: u_diag_ptr_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: y_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 6,
+                        resource: upper_params_buf.as_entire_binding(),
+                    },
+                ],
+            },
+        )?;
 
         let mut encoder = wgpu_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("upper_encoder"),

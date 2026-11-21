@@ -54,7 +54,7 @@ pub fn launch_sparse_24_prune(
         &layout,
     );
     let bind_group =
-        cache.create_bind_group(&layout, &[dense, compressed, metadata, params_buffer]);
+        cache.create_bind_group(&layout, &[dense, compressed, metadata, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -97,7 +97,7 @@ pub fn launch_sparse_24_decompress(
         &layout,
     );
     let bind_group =
-        cache.create_bind_group(&layout, &[compressed, metadata, dense, params_buffer]);
+        cache.create_bind_group(&layout, &[compressed, metadata, dense, params_buffer])?;
 
     let mut encoder = cache
         .device()

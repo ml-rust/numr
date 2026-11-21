@@ -59,7 +59,7 @@ pub fn launch_cast_op(
     let bind_group = cache.create_bind_group_from_bindings(
         &layout,
         &[a, out, params_buffer.as_entire_buffer_binding()],
-    );
+    )?;
 
     let mut encoder = cache
         .device()

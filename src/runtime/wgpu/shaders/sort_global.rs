@@ -201,19 +201,19 @@ pub fn launch_global_sort(
         &[input, &keys, &values, &indices],
         &params_buffer,
         uniform_binding_size,
-    );
+    )?;
     let step_bind_group = cache.create_bind_group_with_dynamic_uniform(
         &layout,
         &[&keys, &values, &indices, &step_dummy],
         &params_buffer,
         uniform_binding_size,
-    );
+    )?;
     let scatter_bind_group = cache.create_bind_group_with_dynamic_uniform(
         &layout,
         &[&values, &indices, values_output, indices_output],
         &params_buffer,
         uniform_binding_size,
-    );
+    )?;
 
     let dispatch_grid = |items: usize| -> Result<(u32, u32)> {
         let groups = items.div_ceil(256);

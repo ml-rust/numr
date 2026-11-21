@@ -10,9 +10,11 @@ use std::sync::Arc;
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
     BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBinding, BufferBindingType,
-    ComputePipeline, ComputePipelineDescriptor, Device, PipelineLayoutDescriptor, Queue,
-    ShaderModule, ShaderModuleDescriptor, ShaderSource, ShaderStages,
+    BufferUsages, ComputePipeline, ComputePipelineDescriptor, Device, PipelineLayoutDescriptor,
+    Queue, ShaderModule, ShaderModuleDescriptor, ShaderSource, ShaderStages,
 };
+
+use super::binding_limits::{BIND_GROUP_OP, binding_range_size, check_binding_size};
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
@@ -242,7 +244,25 @@ impl PipelineCache {
     }
 
     /// Create a bind group from buffers
-    pub fn create_bind_group(&self, layout: &BindGroupLayout, buffers: &[&Buffer]) -> BindGroup {
+    ///
+    /// # Errors
+    ///
+    /// `BackendLimitation` when a buffer exceeds the device's binding size limit.
+    pub fn create_bind_group(
+        &self,
+        layout: &BindGroupLayout,
+        buffers: &[&Buffer],
+    ) -> Result<BindGroup> {
+        let limits = self.device.limits();
+        for (i, buffer) in buffers.iter().enumerate() {
+            check_binding_size(
+                &limits,
+                BIND_GROUP_OP,
+                i as u32,
+                buffer.usage(),
+                buffer.size(),
+            )?;
+        }
         let entries: Vec<BindGroupEntry> = buffers
             .iter()
             .enumerate()
@@ -252,19 +272,33 @@ impl PipelineCache {
             })
             .collect();
 
-        self.device.create_bind_group(&BindGroupDescriptor {
+        Ok(self.device.create_bind_group(&BindGroupDescriptor {
             label: Some("compute_bind_group"),
             layout,
             entries: &entries,
-        })
+        }))
     }
 
     /// Create a bind group from buffer windows, one per binding in order.
+    ///
+    /// # Errors
+    ///
+    /// `BackendLimitation` when a window exceeds the device's binding size limit.
     pub fn create_bind_group_from_bindings(
         &self,
         layout: &BindGroupLayout,
         bindings: &[BufferBinding<'_>],
-    ) -> BindGroup {
+    ) -> Result<BindGroup> {
+        let limits = self.device.limits();
+        for (i, binding) in bindings.iter().enumerate() {
+            check_binding_size(
+                &limits,
+                BIND_GROUP_OP,
+                i as u32,
+                binding.buffer.usage(),
+                binding_range_size(binding),
+            )?;
+        }
         let entries: Vec<BindGroupEntry> = bindings
             .iter()
             .enumerate()
@@ -274,11 +308,11 @@ impl PipelineCache {
             })
             .collect();
 
-        self.device.create_bind_group(&BindGroupDescriptor {
+        Ok(self.device.create_bind_group(&BindGroupDescriptor {
             label: Some("windowed_compute_bind_group"),
             layout,
             entries: &entries,
-        })
+        }))
     }
 
     /// Get or create a storage-buffer layout followed by one dynamic uniform.
@@ -337,7 +371,24 @@ impl PipelineCache {
         storage_buffers: &[&Buffer],
         uniform: &Buffer,
         uniform_binding_size: u64,
-    ) -> BindGroup {
+    ) -> Result<BindGroup> {
+        let limits = self.device.limits();
+        for (i, buffer) in storage_buffers.iter().enumerate() {
+            check_binding_size(
+                &limits,
+                BIND_GROUP_OP,
+                i as u32,
+                buffer.usage(),
+                buffer.size(),
+            )?;
+        }
+        check_binding_size(
+            &limits,
+            BIND_GROUP_OP,
+            storage_buffers.len() as u32,
+            BufferUsages::UNIFORM,
+            uniform_binding_size,
+        )?;
         let mut entries: Vec<BindGroupEntry<'_>> = storage_buffers
             .iter()
             .enumerate()
@@ -355,11 +406,11 @@ impl PipelineCache {
             }),
         });
 
-        self.device.create_bind_group(&BindGroupDescriptor {
+        Ok(self.device.create_bind_group(&BindGroupDescriptor {
             label: Some("dynamic_uniform_compute_bind_group"),
             layout,
             entries: &entries,
-        })
+        }))
     }
 
     /// Get device reference
@@ -399,4 +450,50 @@ pub fn dtype_suffix(dtype: DType) -> Result<&'static str> {
 pub fn entry_point(op: &str, dtype: DType) -> Result<String> {
     let suffix = dtype_suffix(dtype)?;
     Ok(format!("{}_{}", op, suffix))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_oversized_storage_binding_returns_backend_limitation() {
+        let limits = wgpu::Limits::default();
+        let size = limits.max_storage_buffer_binding_size + 4;
+        let err =
+            check_binding_size(&limits, BIND_GROUP_OP, 2, BufferUsages::STORAGE, size).unwrap_err();
+        match err {
+            Error::BackendLimitation {
+                backend,
+                operation,
+                reason,
+            } => {
+                assert_eq!(backend, "wgpu");
+                assert_eq!(operation, BIND_GROUP_OP);
+                assert!(reason.contains("storage binding 2"));
+                assert!(reason.contains("too large for one binding"));
+            }
+            other => panic!("expected BackendLimitation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_oversized_uniform_binding_uses_uniform_limit() {
+        let limits = wgpu::Limits::default();
+        let size = limits.max_uniform_buffer_binding_size + 4;
+        let usage = BufferUsages::UNIFORM | BufferUsages::COPY_DST;
+        assert!(matches!(
+            check_binding_size(&limits, BIND_GROUP_OP, 0, usage, size),
+            Err(Error::BackendLimitation { .. })
+        ));
+        // The same size is fine as a storage binding.
+        assert!(check_binding_size(&limits, BIND_GROUP_OP, 0, BufferUsages::STORAGE, size).is_ok());
+    }
+
+    #[test]
+    fn test_binding_within_limit_is_accepted() {
+        let limits = wgpu::Limits::default();
+        let size = limits.max_storage_buffer_binding_size;
+        assert!(check_binding_size(&limits, BIND_GROUP_OP, 0, BufferUsages::STORAGE, size).is_ok());
+    }
 }

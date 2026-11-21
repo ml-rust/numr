@@ -112,7 +112,7 @@ pub fn launch_cast_i64_op(
     let bind_group = cache.create_bind_group_from_bindings(
         &layout,
         &[a, out, params_buffer.as_entire_buffer_binding()],
-    );
+    )?;
 
     let (groups_x, groups_y) = dispatch_grid(numel);
     let mut encoder = cache

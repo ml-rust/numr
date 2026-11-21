@@ -66,7 +66,7 @@ pub fn launch_gemv_bt(
     });
     let pipeline = cache.get_or_create_pipeline("gemv_bt", "gemv_bt_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[a, b_nk, c, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[a, b_nk, c, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -122,7 +122,7 @@ pub fn launch_batched_gemv_bt(
     });
     let pipeline = cache.get_or_create_pipeline("gemv_bt", "batched_gemv_bt_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[a, b_nk, c, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[a, b_nk, c, params_buffer])?;
 
     let mut encoder = cache
         .device()

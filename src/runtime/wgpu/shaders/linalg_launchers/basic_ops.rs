@@ -33,7 +33,7 @@ pub fn launch_trace(
     });
     let pipeline = cache.get_or_create_pipeline("linalg_basic_ops", "trace_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -76,7 +76,7 @@ pub fn launch_diag(
     });
     let pipeline = cache.get_or_create_pipeline("linalg_basic_ops", "diag_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -119,7 +119,7 @@ pub fn launch_diagflat(
     let pipeline =
         cache.get_or_create_pipeline("linalg_basic_ops", "diagflat_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -161,7 +161,7 @@ pub fn launch_create_identity(
     let pipeline =
         cache.get_or_create_pipeline("linalg_basic_ops", "create_identity_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -204,7 +204,7 @@ pub fn launch_kron(
     });
     let pipeline = cache.get_or_create_pipeline("linalg_basic_ops", "kron_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[a, b, output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[a, b, output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -248,7 +248,7 @@ pub fn launch_khatri_rao(
     let pipeline =
         cache.get_or_create_pipeline("linalg_basic_ops", "khatri_rao_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[a, b, output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[a, b, output, params_buffer])?;
 
     let mut encoder = cache
         .device()

@@ -29,7 +29,7 @@ pub fn launch_det_from_lu(
     let pipeline =
         cache.get_or_create_pipeline("linalg_utilities", "det_from_lu_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[lu_matrix, det_output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[lu_matrix, det_output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -72,7 +72,7 @@ pub fn launch_apply_lu_permutation(
     let pipeline =
         cache.get_or_create_pipeline("linalg", "apply_lu_permutation_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[input, output, pivots, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[input, output, pivots, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -115,7 +115,7 @@ pub fn launch_scatter_column(
     let pipeline =
         cache.get_or_create_pipeline("linalg_utilities", "scatter_column_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[vec, matrix, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[vec, matrix, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -158,7 +158,7 @@ pub fn launch_extract_column(
     let pipeline =
         cache.get_or_create_pipeline("linalg_utilities", "extract_column_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[matrix, col_out, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[matrix, col_out, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -204,7 +204,7 @@ pub fn launch_max_abs(
     let pipeline =
         cache.get_or_create_pipeline("linalg_utilities", "max_abs_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[values, max_output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[values, max_output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -248,7 +248,7 @@ pub fn launch_count_above_threshold(
     let pipeline =
         cache.get_or_create_pipeline("linalg", "count_above_threshold_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[values, count_output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[values, count_output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -291,7 +291,7 @@ pub fn launch_matrix_copy(
     let pipeline =
         cache.get_or_create_pipeline("linalg_utilities", "matrix_copy_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[src, dst, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[src, dst, params_buffer])?;
 
     let mut encoder = cache
         .device()

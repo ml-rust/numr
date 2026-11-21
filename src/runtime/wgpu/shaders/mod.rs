@@ -69,7 +69,10 @@ pub mod where_launcher;
 
 mod linalg_launchers;
 mod linalg_shaders;
+mod binding_limits;
 mod pipeline;
+
+pub(crate) use binding_limits::create_checked_bind_group;
 
 #[cfg(feature = "sparse")]
 pub mod sparse_level_compute;

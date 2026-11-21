@@ -104,7 +104,7 @@ pub fn launch_logical_and(
     });
     let pipeline = cache.get_or_create_pipeline("logical_binary", "logical_and", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[a, b, out, params]);
+    let bind_group = cache.create_bind_group(&layout, &[a, b, out, params])?;
 
     let mut encoder = cache
         .device()
@@ -144,7 +144,7 @@ pub fn launch_logical_or(
     });
     let pipeline = cache.get_or_create_pipeline("logical_binary", "logical_or", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[a, b, out, params]);
+    let bind_group = cache.create_bind_group(&layout, &[a, b, out, params])?;
 
     let mut encoder = cache
         .device()
@@ -184,7 +184,7 @@ pub fn launch_logical_xor(
     });
     let pipeline = cache.get_or_create_pipeline("logical_binary", "logical_xor", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[a, b, out, params]);
+    let bind_group = cache.create_bind_group(&layout, &[a, b, out, params])?;
 
     let mut encoder = cache
         .device()
@@ -223,7 +223,7 @@ pub fn launch_logical_not(
     });
     let pipeline = cache.get_or_create_pipeline("logical_unary", "logical_not", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[a, out, params]);
+    let bind_group = cache.create_bind_group(&layout, &[a, out, params])?;
 
     let mut encoder = cache
         .device()

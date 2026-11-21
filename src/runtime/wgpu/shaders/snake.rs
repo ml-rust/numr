@@ -49,7 +49,7 @@ fn dispatch(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(SNAKE_MODULE, entry_point, &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, buffers);
+    let bind_group = cache.create_bind_group(&layout, buffers)?;
 
     let mut encoder = cache
         .device()

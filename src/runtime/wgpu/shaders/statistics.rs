@@ -73,7 +73,7 @@ pub fn launch_mode_dim(
     });
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
     let bind_group =
-        cache.create_bind_group(&layout, &[sorted, mode_values, mode_counts, params_buffer]);
+        cache.create_bind_group(&layout, &[sorted, mode_values, mode_counts, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -116,7 +116,7 @@ pub fn launch_mode_full(
     });
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
     let bind_group =
-        cache.create_bind_group(&layout, &[sorted, mode_value, mode_count, numel_buffer]);
+        cache.create_bind_group(&layout, &[sorted, mode_value, mode_count, numel_buffer])?;
 
     let mut encoder = cache
         .device()

@@ -38,7 +38,7 @@ fn launch_fused_fwd(
     });
     let pipeline =
         cache.get_or_create_pipeline("fused_activation_mul_f32", entry_point, &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[a, b, out, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[a, b, out, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -189,7 +189,7 @@ fn launch_fused_bwd(
     });
     let pipeline =
         cache.get_or_create_pipeline("fused_activation_mul_f32", entry_point, &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[grad, a, b, d_a, d_b, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[grad, a, b, d_a, d_b, params_buffer])?;
 
     let mut encoder = cache
         .device()

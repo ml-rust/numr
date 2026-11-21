@@ -63,7 +63,7 @@ pub fn launch_csr_spmv(
     let bind_group = cache.create_bind_group(
         &layout,
         &[row_ptrs, col_indices, values, x, y, params_buffer],
-    );
+    )?;
 
     let mut encoder = cache
         .device()
@@ -125,7 +125,7 @@ pub fn launch_csr_spmm(
     let bind_group = cache.create_bind_group(
         &layout,
         &[row_ptrs, col_indices, a_values, b, c, params_buffer],
-    );
+    )?;
 
     let total_elements = m * n;
 
@@ -185,7 +185,7 @@ pub fn launch_csr_extract_diagonal(
     let bind_group = cache.create_bind_group(
         &layout,
         &[row_ptrs, col_indices, values, diag, params_buffer],
-    );
+    )?;
 
     let mut encoder = cache
         .device()

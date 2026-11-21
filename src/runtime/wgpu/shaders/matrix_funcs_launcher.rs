@@ -69,7 +69,7 @@ pub fn launch_validate_eigenvalues(
     });
     queue.write_buffer(&params_buffer, 0, bytemuck::cast_slice(&params));
 
-    let bind_group = cache.create_bind_group(&layout, &[matrix_t, result, &params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[matrix_t, result, &params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -141,7 +141,7 @@ pub fn launch_diagonal_func(
     });
     queue.write_buffer(&params_buffer, 0, bytemuck::cast_slice(&params));
 
-    let bind_group = cache.create_bind_group(&layout, &[input_t, output_f, &params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[input_t, output_f, &params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -197,7 +197,7 @@ pub fn launch_parlett_column(
     });
     queue.write_buffer(&params_buffer, 0, bytemuck::cast_slice(&params));
 
-    let bind_group = cache.create_bind_group(&layout, &[input_t, output_f, &params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[input_t, output_f, &params_buffer])?;
 
     let mut encoder = cache
         .device()

@@ -214,9 +214,9 @@ pub fn launch_strided_copy_into(
     let layout = cache.get_or_create_layout(layout_key);
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
     let bind_group = if shared {
-        cache.create_bind_group(&layout, &[&params_buffer, dst])
+        cache.create_bind_group(&layout, &[&params_buffer, dst])?
     } else {
-        cache.create_bind_group(&layout, &[src, &params_buffer, dst])
+        cache.create_bind_group(&layout, &[src, &params_buffer, dst])?
     };
 
     let (x, y) = dispatch_grid(numel);

@@ -52,7 +52,7 @@ pub fn launch_eig_jacobi_symmetric(
             converged_flag,
             params_buffer,
         ],
-    );
+    )?;
 
     let mut encoder = cache
         .device()
@@ -104,7 +104,7 @@ pub fn launch_schur_decompose(
     let pipeline =
         cache.get_or_create_pipeline("linalg_schur", "schur_decompose_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[t, z, converged_flag, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[t, z, converged_flag, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -158,7 +158,7 @@ pub fn launch_rsf2csf(
     let pipeline = cache.get_or_create_pipeline("linalg_schur", "rsf2csf_f32", &module, &layout);
 
     let bind_group =
-        cache.create_bind_group(&layout, &[t_real, t_imag, z_real, z_imag, params_buffer]);
+        cache.create_bind_group(&layout, &[t_real, t_imag, z_real, z_imag, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -230,7 +230,7 @@ pub fn launch_qz_decompose(
             converged_flag,
             params_buffer,
         ],
-    );
+    )?;
 
     let mut encoder = cache
         .device()
@@ -302,7 +302,7 @@ pub fn launch_eig_general(
             converged_flag,
             params_buffer,
         ],
-    );
+    )?;
 
     let mut encoder = cache
         .device()

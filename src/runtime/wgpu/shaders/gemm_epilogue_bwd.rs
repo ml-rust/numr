@@ -79,7 +79,7 @@ pub fn launch_gemm_bias_activation_bwd(
             buffers.d_bias,
             params_buffer,
         ],
-    );
+    )?;
 
     let grad_pre_pipeline = cache.get_or_create_pipeline(
         "gemm_epilogue_bwd_f32",

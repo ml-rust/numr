@@ -29,7 +29,7 @@ pub fn launch_copy(
     });
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[src, dst, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[src, dst, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -74,7 +74,7 @@ pub fn launch_scatter(
     });
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[src, indices, output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[src, indices, output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -120,7 +120,7 @@ pub fn launch_index_put(
     });
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[indices, src, output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[indices, src, output, params_buffer])?;
 
     let mut encoder = cache
         .device()
@@ -165,7 +165,7 @@ pub fn launch_slice_assign(
     });
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[src, output, params_buffer]);
+    let bind_group = cache.create_bind_group(&layout, &[src, output, params_buffer])?;
 
     let mut encoder = cache
         .device()

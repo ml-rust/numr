@@ -22,6 +22,8 @@ use crate::error::{Error, Result};
 use crate::runtime::wgpu::client::get_buffer;
 #[cfg(feature = "wgpu")]
 use crate::runtime::wgpu::shaders::LayoutKey;
+#[cfg(feature = "wgpu")]
+use crate::runtime::wgpu::shaders::create_checked_bind_group;
 use crate::runtime::wgpu::shaders::linear_grid::dispatch_linear;
 #[cfg(feature = "wgpu")]
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
@@ -162,28 +164,31 @@ pub fn sparse_qr_solve_wgpu(
             }),
         );
 
-        let bg = wgpu_device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("qr_solve_reflector_bg"),
-            layout: &reflector_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: v_temp_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: tau_scalar_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: work_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: reflector_params_buf.as_entire_binding(),
-                },
-            ],
-        });
+        let bg = create_checked_bind_group(
+            &wgpu_device,
+            &wgpu::BindGroupDescriptor {
+                label: Some("qr_solve_reflector_bg"),
+                layout: &reflector_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: v_temp_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: tau_scalar_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: work_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: reflector_params_buf.as_entire_binding(),
+                    },
+                ],
+            },
+        )?;
         let mut enc = wgpu_device.create_command_encoder(&Default::default());
         {
             let mut pass = enc.begin_compute_pass(&Default::default());
@@ -268,28 +273,31 @@ pub fn sparse_qr_solve_wgpu(
     );
 
     {
-        let bg = wgpu_device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("qr_solve_find_diag_bg"),
-            layout: &find_diag_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: r_col_ptrs_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: r_row_indices_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: u_diag_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: find_diag_params_buf.as_entire_binding(),
-                },
-            ],
-        });
+        let bg = create_checked_bind_group(
+            &wgpu_device,
+            &wgpu::BindGroupDescriptor {
+                label: Some("qr_solve_find_diag_bg"),
+                layout: &find_diag_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: r_col_ptrs_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: r_row_indices_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: u_diag_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: find_diag_params_buf.as_entire_binding(),
+                    },
+                ],
+            },
+        )?;
         let mut enc = wgpu_device.create_command_encoder(&Default::default());
         {
             let mut pass = enc.begin_compute_pass(&Default::default());
@@ -350,40 +358,43 @@ pub fn sparse_qr_solve_wgpu(
             }),
         );
 
-        let bg = wgpu_device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("qr_solve_trsv_bg"),
-            layout: &upper_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: u_level_cols_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: r_col_ptrs_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: r_row_indices_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: r_values_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: u_diag_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: work_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 6,
-                    resource: trsv_params_buf.as_entire_binding(),
-                },
-            ],
-        });
+        let bg = create_checked_bind_group(
+            &wgpu_device,
+            &wgpu::BindGroupDescriptor {
+                label: Some("qr_solve_trsv_bg"),
+                layout: &upper_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: u_level_cols_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: r_col_ptrs_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: r_row_indices_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: r_values_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: u_diag_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: work_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 6,
+                        resource: trsv_params_buf.as_entire_binding(),
+                    },
+                ],
+            },
+        )?;
         let mut enc = wgpu_device.create_command_encoder(&Default::default());
         {
             let mut pass = enc.begin_compute_pass(&Default::default());
@@ -449,28 +460,31 @@ pub fn sparse_qr_solve_wgpu(
     );
 
     {
-        let bg = wgpu_device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("qr_solve_perm_bg"),
-            layout: &perm_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: work_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: inv_perm_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: result_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: perm_params_buf.as_entire_binding(),
-                },
-            ],
-        });
+        let bg = create_checked_bind_group(
+            &wgpu_device,
+            &wgpu::BindGroupDescriptor {
+                label: Some("qr_solve_perm_bg"),
+                layout: &perm_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: work_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: inv_perm_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: result_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: perm_params_buf.as_entire_binding(),
+                    },
+                ],
+            },
+        )?;
         let mut enc = wgpu_device.create_command_encoder(&Default::default());
         {
             let mut pass = enc.begin_compute_pass(&Default::default());
