@@ -36,6 +36,7 @@ pub mod conv_transpose1d_gemm;
 #[cfg(feature = "cuda")]
 pub mod conv_transpose1d_gemm_first;
 pub mod conv_transpose1d_multichannel;
+pub mod conv_transpose1d_wide;
 pub mod cumulative;
 pub mod depthwise_conv2d;
 pub mod distance;

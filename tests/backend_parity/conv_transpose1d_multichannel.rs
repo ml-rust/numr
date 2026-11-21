@@ -17,23 +17,23 @@ use crate::backend_parity::helpers::with_cuda_backend;
 #[cfg(feature = "wgpu")]
 use crate::backend_parity::helpers::with_wgpu_backend;
 use crate::common::{
-    DTypeDomain, assert_tensor_allclose_tol, create_cpu_client, is_dtype_supported, parity_dtypes,
-    tolerance_for_dtype,
+    DTypeDomain, assert_tensor_allclose_tol, create_cpu_client, gemm_long_k_tolerance,
+    is_dtype_supported, parity_dtypes,
 };
 
 /// Deterministic, non-repeating input values.
-fn transpose_input(n: usize) -> Vec<f64> {
+pub fn transpose_input(n: usize) -> Vec<f64> {
     (0..n).map(|i| ((i % 13) as f64 - 6.0) * 0.25).collect()
 }
 
 /// Weight values that vary with the flat index (which spans `c_in` first,
 /// then `c_out/groups`), so every output channel has a distinct kernel and a
 /// channel-blocking bug that mixes lanes shows up as a value mismatch.
-fn transpose_weight(n: usize) -> Vec<f64> {
+pub fn transpose_weight(n: usize) -> Vec<f64> {
     (0..n).map(|i| ((i % 9) as f64 - 4.0) * 0.2).collect()
 }
 
-fn transpose_bias(n: usize) -> Vec<f64> {
+pub fn transpose_bias(n: usize) -> Vec<f64> {
     (0..n).map(|i| (i as f64) * 0.05 - 0.075).collect()
 }
 
@@ -50,11 +50,13 @@ fn transpose_input_batched(batch: usize, per_batch: usize) -> Vec<f64> {
 }
 
 /// Runs `conv_transpose1d` on CPU and every enabled GPU backend for every
-/// float dtype and asserts the GPU result matches the CPU reference.
+/// float dtype and asserts the GPU result matches the CPU reference. The
+/// bound is accumulation-aware: a sum that cancels to a small output still
+/// carries rounding from its larger partial sums.
 /// `weight_shape` is `[c_in, c_out/groups, k]`; `c_out` is derived as
 /// `weight_shape[1] * groups`, matching `validate_conv_transpose1d`.
 #[allow(clippy::too_many_arguments)]
-fn assert_conv_transpose1d_parity(
+pub fn assert_conv_transpose1d_parity(
     label: &str,
     input: &[f64],
     input_shape: &[usize],
@@ -68,9 +70,21 @@ fn assert_conv_transpose1d_parity(
     groups: usize,
 ) {
     let c_out = weight_shape[1] * groups;
+    // Each output sums `c_in / groups` channels times the taps that land on it.
+    // Taps `k` with `k * dilation` in one residue class mod `stride` share an
+    // output, so at most `ceil(k / (stride / gcd(stride, dilation)))` do.
+    let (mut a, mut b) = (stride, dilation);
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    let contraction = weight_shape[0] / groups * weight_shape[2].div_ceil(stride / a);
+    let operand_scale = input
+        .iter()
+        .chain(weight)
+        .fold(0.0f64, |m, v| m.max(v.abs()));
 
     for dtype in parity_dtypes(DTypeDomain::FloatsOnly, "cpu") {
-        let (rtol, atol) = tolerance_for_dtype(dtype);
+        let (rtol, atol) = gemm_long_k_tolerance(dtype, contraction, operand_scale);
         let (cpu_client, cpu_device) = create_cpu_client();
         let cpu_in = tensor_from_f64(input, input_shape, dtype, &cpu_device, &cpu_client)
             .unwrap_or_else(|e| panic!("CPU input tensor failed for {label} [{dtype:?}]: {e}"));
@@ -440,60 +454,6 @@ fn conv_transpose1d_oc4_kernel_size_1_parity() {
         PaddingMode::Valid,
         0,
         1,
-        1,
-    );
-}
-
-/// `c_in=64` with the decoder's `kernel=2*stride`, `padding=ceil(stride/2)`
-/// geometry: wide enough to take the CUDA GEMM-first path
-/// (`conv_transpose1d_gemm_first`), whose fold sums the taps of a GEMM product
-/// instead of running the direct kernel. All four float dtypes take it here;
-/// F16 and BF16 run the product in F32 and round once at the fold, which is
-/// the same accumulation the CPU reference performs. Bias and batch both on,
-/// so the fold's bias add and batch stride are covered.
-#[test]
-fn conv_transpose1d_gemm_first_upsample_parity() {
-    let input_shape = [2usize, 64, 9];
-    let weight_shape = [64usize, 6, 8];
-    // `transpose_input` over both batches: `64 * 9` is not a multiple of 13,
-    // so the second batch is a shifted pattern, not a copy of the first.
-    let input = transpose_input(input_shape.iter().product());
-    let weight = transpose_weight(weight_shape.iter().product());
-    let bias = transpose_bias(6);
-    assert_conv_transpose1d_parity(
-        "conv_transpose1d_gemm_first_upsample",
-        &input,
-        &input_shape,
-        &weight,
-        &weight_shape,
-        Some(&bias),
-        4,
-        PaddingMode::Custom(2, 2, 0, 0),
-        0,
-        1,
-        1,
-    );
-}
-
-/// Same path with an odd stride, dilation and output padding, so the fold's
-/// divisibility test, negative-numerator guard and lengthened tail all run.
-#[test]
-fn conv_transpose1d_gemm_first_odd_stride_dilation_parity() {
-    let input_shape = [1usize, 40, 7];
-    let weight_shape = [40usize, 5, 6];
-    let input = transpose_input(input_shape.iter().product());
-    let weight = transpose_weight(weight_shape.iter().product());
-    assert_conv_transpose1d_parity(
-        "conv_transpose1d_gemm_first_odd_stride_dilation",
-        &input,
-        &input_shape,
-        &weight,
-        &weight_shape,
-        None,
-        3,
-        PaddingMode::Custom(1, 1, 0, 0),
-        2,
-        2,
         1,
     );
 }
