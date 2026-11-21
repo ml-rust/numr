@@ -21,6 +21,10 @@ impl CorrectlyRoundedOps<CudaRuntime> for CudaClient {
         map(self, a, CrKernel::Log1p, "cr_log1p")
     }
 
+    fn cr_acos(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        map(self, a, CrKernel::Acos, "cr_acos")
+    }
+
     fn cr_pow_scalar(&self, a: &Tensor<CudaRuntime>, exponent: f64) -> Result<Tensor<CudaRuntime>> {
         map(self, a, CrKernel::PowScalar(exponent), "cr_pow_scalar")
     }

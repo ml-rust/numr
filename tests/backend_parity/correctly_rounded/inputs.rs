@@ -73,6 +73,16 @@ pub fn adversarial() -> Vec<f64> {
         0x3ff0_0800_0000_0000,
         0x3fe6_a09e_667f_3bcd,
         0x3ff6_a09e_667f_3bcd,
+        // acos: double-angle, tiny-path and cubic-term thresholds.
+        0x3fe0_0000_0000_0000,
+        0x3f00_0000_0000_0000,
+        0x3c8c_b3b3_8697_47f4,
+        // acos: inputs the accurate path lists as exceptions.
+        0x3fef_ffff_ffff_fdc0,
+        0x3fb5_3ea6_c725_5e88,
+        0x3f4f_d737_be91_4578,
+        0x3fef_ffff_ffff_ff70,
+        0x3fa3_90e6_939c_d1a6,
     ] {
         v.extend(around(bits, 8));
         v.extend(around(bits | (1 << 63), 8));
@@ -106,6 +116,22 @@ pub fn dense(count: usize, seed: u64) -> Vec<f64> {
         v.push(f64::from_bits(bits));
         let exponent = 1 + (bits >> 52) % 0x7fe;
         v.push(f64::from_bits((exponent << 52) | (rng.next_u64() >> 12)));
+    }
+    v
+}
+
+/// Signed values of `(-1, 1)`: uniform ones, and random significands over every binade.
+pub fn unit_interval(count: usize, seed: u64) -> Vec<f64> {
+    let mut rng = SplitMix(seed);
+    let mut v = Vec::with_capacity(2 * count);
+    for _ in 0..count {
+        let bits = rng.next_u64();
+        let sign = bits & (1 << 63);
+        v.push((bits >> 11) as f64 * 2f64.powi(-52) - 1.0);
+        let exponent = (bits >> 1) % 0x3ff;
+        v.push(f64::from_bits(
+            sign | (exponent << 52) | (rng.next_u64() >> 12),
+        ));
     }
     v
 }

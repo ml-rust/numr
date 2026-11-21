@@ -10,10 +10,11 @@ fn client() -> (CpuClient, CpuDevice) {
 
 type CpuOp = fn(&CpuClient, &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>>;
 
-const OPS: [(&str, CpuOp); 4] = [
+const OPS: [(&str, CpuOp); 5] = [
     ("cr_exp", |c, a| c.cr_exp(a)),
     ("cr_log", |c, a| c.cr_log(a)),
     ("cr_log1p", |c, a| c.cr_log1p(a)),
+    ("cr_acos", |c, a| c.cr_acos(a)),
     ("cr_pow_scalar", |c, a| c.cr_pow_scalar(a, 4.0 / 3.0)),
 ];
 
@@ -55,7 +56,13 @@ fn correctly_rounded_maps_zero_dimensional_tensors() -> Result<()> {
     let (client, device) = client();
     let x = 0.156_043_060_815_255_54;
     let input = Tensor::<CpuRuntime>::from_slice(&[x], &[], &device)?;
-    let expected = [cr::exp(x), cr::log(x), cr::log1p(x), cr::pow(x, 4.0 / 3.0)];
+    let expected = [
+        cr::exp(x),
+        cr::log(x),
+        cr::log1p(x),
+        cr::acos(x),
+        cr::pow(x, 4.0 / 3.0),
+    ];
     for ((name, op), want) in OPS.into_iter().zip(expected) {
         let out = op(&client, &input)?;
         assert!(out.shape().is_empty(), "{name}");
@@ -95,6 +102,42 @@ fn correctly_rounded_pow_scalar_follows_annex_f_for_the_exponent() -> Result<()>
         for (&x, g) in data.iter().zip(got) {
             assert_eq!(g.to_bits(), cr::pow(x, y).to_bits(), "pow({x}, {y})");
         }
+    }
+    Ok(())
+}
+
+#[test]
+fn correctly_rounded_acos_maps_domain_edges_on_a_transposed_view() -> Result<()> {
+    use std::f64::consts::{FRAC_PI_2, PI};
+    let (client, device) = client();
+    let above_one = f64::from_bits(1.0f64.to_bits() + 1);
+    let data = [
+        1.0,
+        -1.0,
+        0.0,
+        -0.0,
+        above_one,
+        -above_one,
+        f64::INFINITY,
+        0.5,
+    ];
+    let input = Tensor::<CpuRuntime>::from_slice(&data, &[2, 4], &device)?.transpose(0, 1)?;
+    let out = client.cr_acos(&input)?;
+    assert_eq!(out.shape(), &[4, 2]);
+    let got: Vec<f64> = out.try_to_vec()?;
+    // Row-major order of the transposed view.
+    let want = [
+        0.0,
+        CANONICAL_NAN,
+        PI,
+        CANONICAL_NAN,
+        FRAC_PI_2,
+        CANONICAL_NAN,
+        FRAC_PI_2,
+        cr::acos(0.5),
+    ];
+    for (g, w) in got.iter().zip(want) {
+        assert_eq!(g.to_bits(), w.to_bits(), "got {got:?}");
     }
     Ok(())
 }

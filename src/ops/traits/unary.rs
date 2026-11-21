@@ -96,6 +96,9 @@ pub trait UnaryOps<R: Runtime> {
     fn asin(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 
     /// Arc cosine (inverse cosine): acos(a), domain [-1,1], range [0, π]
+    ///
+    /// No bit reproducibility across runtime or host libm. For reproducible F64 results, use
+    /// [`CorrectlyRoundedOps::cr_acos`](super::CorrectlyRoundedOps::cr_acos).
     fn acos(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 
     /// Arc tangent (inverse tangent): atan(a)

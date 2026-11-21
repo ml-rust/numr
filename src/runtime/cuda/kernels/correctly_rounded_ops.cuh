@@ -5,7 +5,7 @@
 // compiles with --fmad=false, so a bare operator cannot contract either.
 //
 // Ported from the CORE-MATH project (https://core-math.gitlabpages.inria.fr/),
-// src/binary64/{exp/exp.c,log/log.c,log1p/log1p.c}.
+// src/binary64/{exp/exp.c,log/log.c,log1p/log1p.c,acos/acos.c}.
 // Copyright (c) 2022-2026 Alexei Sibidanov <sibid@uvic.ca>.
 // Copyright (c) 2022-2026 INRIA and CERN. Authors: Paul Zimmermann and Tom Hubrecht.
 //
@@ -55,6 +55,12 @@ __device__ __forceinline__ double cr_add(double a, double b) { return __dadd_rn(
 __device__ __forceinline__ double cr_sub(double a, double b) { return __dsub_rn(a, b); }
 __device__ __forceinline__ double cr_mul(double a, double b) { return __dmul_rn(a, b); }
 __device__ __forceinline__ double cr_fma(double a, double b, double c) { return __fma_rn(a, b, c); }
+__device__ __forceinline__ double cr_div(double a, double b) { return __ddiv_rn(a, b); }
+__device__ __forceinline__ double cr_sqrt(double a) { return __dsqrt_rn(a); }
+// The magnitude of x with the sign bit of s, as Rust `f64::copysign`.
+__device__ __forceinline__ double cr_copysign(double x, double s) {
+    return cr_from_bits((cr_bits(x) & CR_ABS_MASK) | (cr_bits(s) & ~CR_ABS_MASK));
+}
 
 // Integer to double rounds to nearest, as Rust `as f64`. Double to integer is used on
 // integral values only, so truncation is exact.
@@ -129,6 +135,18 @@ __device__ __forceinline__ CrDD cr_fma_dw(double ah, double al, double bh, doubl
     const double f = cr_add(e, cl);
     const double g = cr_add(cr_mul(ah, bl), f);
     return cr_dd(dh, cr_add(cr_mul(al, bh), g));
+}
+
+// Horner evaluation in double-double of the n (hi, lo) pairs of c, lowest degree first,
+// at xh + xl. `low` joins the leading coefficient first. CORE-MATH's polydd.
+__device__ __forceinline__ CrDD cr_horner_dd(double xh, double xl, const cr_u64* c, int n, double low) {
+    const CrDD s = cr_fast_two_sum(cr_tab(c, 2 * (n - 1)), low);
+    CrDD r = cr_dd(s.h, cr_add(cr_tab(c, 2 * (n - 1) + 1), s.l));
+    for (int i = n - 2; i >= 0; --i) {
+        r = cr_mul_dd(xh, xl, r.h, r.l);
+        r = cr_fast_sum(cr_tab(c, 2 * i), cr_tab(c, 2 * i + 1), r.h, r.l);
+    }
+    return r;
 }
 
 // Round |y| < 2^51 to the nearest integer, ties to even, with 1.5 * 2^52.

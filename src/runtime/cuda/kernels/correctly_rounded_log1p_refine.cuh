@@ -26,18 +26,6 @@ __device__ __forceinline__ double cr_log1p_tiny(double x, cr_u64 ax) {
     return cr_fma(cr_abs(x), cr_from_bits(CR_LOG1P_MINUS_TWO_POW_54), x);
 }
 
-// Horner evaluation in double-double of c ((hi, lo) pairs) at xh + xl. `low` joins the
-// leading coefficient first.
-__device__ __forceinline__ CrDD cr_log1p_poly_dd(double xh, double xl, const cr_u64* c, int n, double low) {
-    const CrDD s = cr_fast_two_sum(cr_tab(c, 2 * (n - 1)), low);
-    CrDD r = cr_dd(s.h, cr_add(cr_tab(c, 2 * (n - 1) + 1), s.l));
-    for (int i = n - 2; i >= 0; --i) {
-        r = cr_mul_dd(xh, xl, r.h, r.l);
-        r = cr_fast_sum(cr_tab(c, 2 * i), cr_tab(c, 2 * i + 1), r.h, r.l);
-    }
-    return r;
-}
-
 // Horner evaluation in double-double of c at the double x.
 __device__ __forceinline__ CrDD cr_log1p_poly_d(double x, const cr_u64* c, int n, double low) {
     const CrDD s = cr_fast_two_sum(cr_tab(c, 2 * (n - 1)), low);
@@ -124,7 +112,7 @@ __device__ __noinline__ double cr_log1p_refine(double x, double a) {
             xh, cr_add(cr_add(cr_tab(CR_LOG1P_REFINE_CL, 0), cr_mul(xh, cr_tab(CR_LOG1P_REFINE_CL, 1))),
                        cr_mul(cr_mul(xh, xh),
                               cr_add(cr_tab(CR_LOG1P_REFINE_CL, 2), cr_mul(xh, cr_tab(CR_LOG1P_REFINE_CL, 3))))));
-        CrDD s = cr_log1p_poly_dd(xh, xl, CR_LOG1P_REFINE_CY, (int)CR_LEN(CR_LOG1P_REFINE_CY) / 2, sl0);
+        CrDD s = cr_horner_dd(xh, xl, CR_LOG1P_REFINE_CY, (int)CR_LEN(CR_LOG1P_REFINE_CY) / 2, sl0);
         s = cr_mul_dd(xh, xl, s.h, s.l);
         if (je != 0) {
             const double jef = cr_i2d(je);

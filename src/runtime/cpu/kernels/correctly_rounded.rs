@@ -7,7 +7,7 @@
 //! host functions' bits. Other targets compile the plain copy only.
 
 use crate::algorithm::correctly_rounded::traced::{
-    exp_traced, log_traced, log1p_traced, pow_traced,
+    acos_traced, exp_traced, log_traced, log1p_traced, pow_traced,
 };
 
 /// The function a lane map applies.
@@ -19,6 +19,8 @@ pub enum CrFunction {
     Log,
     /// [`crate::algorithm::correctly_rounded::log1p`].
     Log1p,
+    /// [`crate::algorithm::correctly_rounded::acos`].
+    Acos,
     /// [`crate::algorithm::correctly_rounded::pow`] with this exponent.
     PowScalar(f64),
 }
@@ -85,6 +87,11 @@ fn lanes(function: CrFunction, input: &[f64], output: &mut [f64]) {
                 *y = log1p_traced(x).0;
             }
         }
+        CrFunction::Acos => {
+            for (y, &x) in output.iter_mut().zip(input) {
+                *y = acos_traced(x).0;
+            }
+        }
         CrFunction::PowScalar(e) => {
             for (y, &x) in output.iter_mut().zip(input) {
                 *y = pow_traced(x, e).0;
@@ -96,12 +103,13 @@ fn lanes(function: CrFunction, input: &[f64], output: &mut [f64]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::algorithm::correctly_rounded::{exp, log, log1p, pow};
+    use crate::algorithm::correctly_rounded::{acos, exp, log, log1p, pow};
 
-    const FUNCTIONS: [CrFunction; 6] = [
+    const FUNCTIONS: [CrFunction; 7] = [
         CrFunction::Exp,
         CrFunction::Log,
         CrFunction::Log1p,
+        CrFunction::Acos,
         CrFunction::PowScalar(4.0 / 3.0),
         CrFunction::PowScalar(-1.5),
         CrFunction::PowScalar(3.0),
@@ -112,6 +120,7 @@ mod tests {
             CrFunction::Exp => exp(x),
             CrFunction::Log => log(x),
             CrFunction::Log1p => log1p(x),
+            CrFunction::Acos => acos(x),
             CrFunction::PowScalar(e) => pow(x, e),
         }
     }
@@ -148,6 +157,10 @@ mod tests {
             // Positive inputs with exponents 2^-15 to 2^112 keep log and pow off the specials.
             v.push(f64::from_bits(
                 ((0x3f0 + (state & 0x7f)) << 52) | (state >> 12),
+            ));
+            // Signed inputs with exponents 2^-64 to 2^-1 reach every acos branch.
+            v.push(f64::from_bits(
+                (state & (1 << 63)) | ((0x3bf + ((state >> 1) & 0x3f)) << 52) | (state >> 12),
             ));
         }
         v

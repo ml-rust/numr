@@ -4,7 +4,7 @@
 //! are correctly rounded too.
 
 use super::adversarial::specials;
-use super::hard_cases::load;
+use super::hard_cases::{load, load_fixture};
 use super::oracle::Function;
 use super::pow_hard_cases::load_pow;
 use super::pow_special::hydr_exponents;
@@ -17,6 +17,7 @@ use numr::runtime::cpu::correctly_rounded_lanes::{CrFunction, LaneCopy, map_f64}
 #[derive(Debug, Clone, Copy)]
 enum Op {
     Unary(Function),
+    Acos,
     Pow(f64),
 }
 
@@ -24,6 +25,7 @@ impl Op {
     fn host(self, x: f64) -> f64 {
         match self {
             Op::Unary(function) => function.numr(x),
+            Op::Acos => cr::acos(x),
             Op::Pow(y) => cr::pow(x, y),
         }
     }
@@ -33,6 +35,7 @@ impl Op {
             Op::Unary(Function::Exp) => client.cr_exp(a),
             Op::Unary(Function::Log) => client.cr_log(a),
             Op::Unary(Function::Log1p) => client.cr_log1p(a),
+            Op::Acos => client.cr_acos(a),
             Op::Pow(y) => client.cr_pow_scalar(a, y),
         }
     }
@@ -42,6 +45,7 @@ impl Op {
             Op::Unary(Function::Exp) => CrFunction::Exp,
             Op::Unary(Function::Log) => CrFunction::Log,
             Op::Unary(Function::Log1p) => CrFunction::Log1p,
+            Op::Acos => CrFunction::Acos,
             Op::Pow(y) => CrFunction::PowScalar(y),
         }
     }
@@ -49,6 +53,7 @@ impl Op {
 
 fn ops() -> Vec<Op> {
     let mut ops: Vec<Op> = Function::ALL.into_iter().map(Op::Unary).collect();
+    ops.push(Op::Acos);
     ops.extend(hydr_exponents().into_iter().map(Op::Pow));
     ops
 }
@@ -78,6 +83,7 @@ fn pool(op: Op, stride: usize) -> Vec<f64> {
     let mut v = specials();
     match op {
         Op::Unary(function) => v.extend(load(function).into_iter().step_by(stride)),
+        Op::Acos => v.extend(load_fixture("acos").into_iter().step_by(stride)),
         Op::Pow(_) => v.extend(load_pow().into_iter().step_by(stride).map(|(x, _)| x)),
     }
     v
@@ -159,9 +165,12 @@ fn test_tensor_equals_host_on_every_hard_case() -> Result<()> {
     let device = CpuDevice::new();
     let client = CpuClient::new(device.clone())
         .with_parallelism(ParallelismConfig::new(Some(4), Some(1000)));
-    for function in Function::ALL {
-        let op = Op::Unary(function);
-        let data = load(function);
+    let mut cases: Vec<(Op, Vec<f64>)> = Function::ALL
+        .into_iter()
+        .map(|function| (Op::Unary(function), load(function)))
+        .collect();
+    cases.push((Op::Acos, load_fixture("acos")));
+    for (op, data) in cases {
         let input = Tensor::<CpuRuntime>::from_slice(&data, &[data.len()], &device)?;
         run(op, &client, &input, "hard cases")?;
     }
@@ -187,12 +196,65 @@ fn test_pow_tensor_equals_host_on_hard_case_groups() -> Result<()> {
     Ok(())
 }
 
+/// `acos` branch thresholds with their neighbours, `+-1` stepped inward, and the inputs
+/// the accurate path lists as exceptions.
+fn acos_thresholds() -> Vec<f64> {
+    let mut v = Vec::new();
+    for bits in [
+        0x3fe0_0000_0000_0000u64, // 0.5
+        0x3f00_0000_0000_0000,    // 2^-15
+        0x3c8c_b3b3_8697_47f4,    // cubic-term cutoff of the tiny path
+        0x3fb0_0000_0000_0000,    // 2^-4
+        0x3ff0_0000_0000_0000,    // 1
+    ] {
+        for k in 0..=16u64 {
+            for b in [bits + k, bits - k] {
+                v.push(f64::from_bits(b));
+                v.push(-f64::from_bits(b));
+            }
+        }
+    }
+    v.extend(
+        [
+            0x3fef_ffff_ffff_fdc0u64,
+            0x3fb5_3ea6_c725_5e88,
+            0x3f4f_d737_be91_4578,
+            0x3fef_ffff_ffff_ff70,
+            0x3fa3_90e6_939c_d1a6,
+        ]
+        .map(f64::from_bits),
+    );
+    v
+}
+
+#[test]
+fn test_acos_tensor_equals_host_on_thresholds_and_exceptions() -> Result<()> {
+    let device = CpuDevice::new();
+    let data = acos_thresholds();
+    let input = Tensor::<CpuRuntime>::from_slice(&data, &[data.len()], &device)?;
+    for (client, name) in clients() {
+        run(
+            Op::Acos,
+            &client,
+            &input,
+            &format!("{name}, acos thresholds"),
+        )?;
+    }
+    for copy in [LaneCopy::Best, LaneCopy::Plain] {
+        let mut output = vec![0.0; data.len()];
+        map_f64(CrFunction::Acos, &data, &mut output, copy);
+        check_bits(Op::Acos, &data, &output, &format!("{copy:?} copy"));
+    }
+    Ok(())
+}
+
 #[test]
 fn test_fused_and_plain_lane_copies_agree_on_hard_cases() {
     let mut cases: Vec<(Op, Vec<f64>)> = Function::ALL
         .into_iter()
         .map(|function| (Op::Unary(function), load(function)))
         .collect();
+    cases.push((Op::Acos, load_fixture("acos")));
     for group in load_pow().chunk_by(|a, b| a.1.to_bits() == b.1.to_bits()) {
         cases.push((Op::Pow(group[0].1), group.iter().map(|&(x, _)| x).collect()));
     }

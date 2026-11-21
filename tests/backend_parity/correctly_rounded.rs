@@ -26,6 +26,7 @@ fn correctly_rounded_wgpu_rejects_every_dtype() {
                 ("cr_exp", client.cr_exp(&input)),
                 ("cr_log", client.cr_log(&input)),
                 ("cr_log1p", client.cr_log1p(&input)),
+                ("cr_acos", client.cr_acos(&input)),
                 ("cr_pow_scalar", client.cr_pow_scalar(&input, 2.0)),
             ];
             for (name, result) in results {

@@ -124,12 +124,14 @@ fn correctly_rounded_rejects_runtime_without_basic_arithmetic() {
 
 #[test]
 fn correctly_rounded_rejects_runtime_without_fused_mul_add() {
-    let err = numr::ops::require_correctly_rounded_contracts::<BasicOnlyRuntime>("cr_log1p")
-        .expect_err("backend-defined fused multiply-add must be rejected");
-    let message = err.to_string();
-    assert!(matches!(err, Error::InvalidArgument { .. }), "{err:?}");
-    assert!(message.contains("cr_log1p"), "{message}");
-    assert!(message.contains("fused multiply-add for F64"), "{message}");
+    for op in ["cr_log1p", "cr_acos"] {
+        let err = numr::ops::require_correctly_rounded_contracts::<BasicOnlyRuntime>(op)
+            .expect_err("backend-defined fused multiply-add must be rejected");
+        let message = err.to_string();
+        assert!(matches!(err, Error::InvalidArgument { .. }), "{err:?}");
+        assert!(message.contains(op), "{message}");
+        assert!(message.contains("fused multiply-add for F64"), "{message}");
+    }
 }
 
 #[test]

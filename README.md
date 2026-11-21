@@ -211,7 +211,7 @@ The full list is in [docs/operations.md](docs/operations.md):
 - Linear algebra and complex operations
 - Statistics, random distributions, and quasi-random sequences
 - Distance metrics on tensors and on plain slices
-- `CorrectlyRoundedOps`: F64 `exp`, `log`, `log1p`, and `pow` by a scalar, with the same bits on CPU and CUDA
+- `CorrectlyRoundedOps`: F64 `exp`, `log`, `log1p`, `acos`, and `pow` by a scalar, with the same bits on CPU and CUDA
 
 The algorithm modules are in [docs/algorithms.md](docs/algorithms.md):
 

@@ -16,8 +16,8 @@
 //!
 //! The kernels port CORE-MATH (MIT licence, <https://core-math.gitlabpages.inria.fr/>).
 //! They use only IEEE add, subtract, multiply and `f64::mul_add`, in a fixed order, plus
-//! exact integer operations on bit patterns. `acos` also uses IEEE divide and `f64::sqrt`. The caller keeps round-to-nearest-even and
-//! gradual underflow active. Every NaN result is the canonical quiet NaN
+//! exact integer operations on bit patterns. `acos` also uses IEEE divide and `f64::sqrt`.
+//! The caller keeps round-to-nearest-even and gradual underflow active. Every NaN result is the canonical quiet NaN
 //! `0x7ff8000000000000`. IEEE exception flags are not promised.
 
 mod acos;

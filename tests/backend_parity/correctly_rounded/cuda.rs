@@ -3,7 +3,7 @@
 use numr::prelude::*;
 use numr::runtime::cuda::{CudaClient, CudaDevice, CudaRuntime};
 
-use super::inputs::{HYDR_REGRESSION, adversarial, dense, exponents};
+use super::inputs::{HYDR_REGRESSION, adversarial, dense, exponents, unit_interval};
 use crate::backend_parity::helpers::with_cuda_backend;
 use crate::common::create_cpu_client;
 
@@ -13,11 +13,12 @@ enum Op {
     Exp,
     Log,
     Log1p,
+    Acos,
     Pow(f64),
 }
 
 fn ops() -> Vec<Op> {
-    let mut ops = vec![Op::Exp, Op::Log, Op::Log1p];
+    let mut ops = vec![Op::Exp, Op::Log, Op::Log1p, Op::Acos];
     ops.extend(exponents().into_iter().map(Op::Pow));
     ops
 }
@@ -31,6 +32,7 @@ where
         Op::Exp => client.cr_exp(a),
         Op::Log => client.cr_log(a),
         Op::Log1p => client.cr_log1p(a),
+        Op::Acos => client.cr_acos(a),
         Op::Pow(y) => client.cr_pow_scalar(a, y),
     }
 }
@@ -95,6 +97,14 @@ fn correctly_rounded_cuda_matches_cpu_on_dense_bit_patterns() {
 }
 
 #[test]
+fn correctly_rounded_cuda_acos_matches_cpu_on_the_unit_interval() {
+    with_cuda_backend(|client, device| {
+        let data = unit_interval(1 << 17, 0xac05_c0de);
+        check(&client, &device, Op::Acos, &data, "unit interval");
+    });
+}
+
+#[test]
 fn correctly_rounded_cuda_matches_cpu_on_hydr_regression_input() {
     with_cuda_backend(|client, device| {
         for op in ops() {
@@ -111,7 +121,7 @@ fn correctly_rounded_cuda_matches_cpu_across_block_boundaries() {
             1usize, 2, 31, 32, 33, 255, 256, 257, 511, 512, 513, 1023, 1024, 1025, 4097, 65_537,
             80_000,
         ] {
-            for op in [Op::Exp, Op::Log, Op::Log1p, Op::Pow(4.0 / 3.0)] {
+            for op in [Op::Exp, Op::Log, Op::Log1p, Op::Acos, Op::Pow(4.0 / 3.0)] {
                 check(&client, &device, op, &data[..len], &format!("length {len}"));
             }
         }
@@ -161,6 +171,7 @@ fn correctly_rounded_cuda_matches_cpu_on_strided_views() {
                 Op::Exp,
                 Op::Log,
                 Op::Log1p,
+                Op::Acos,
                 Op::Pow(7.0 / 3.0),
                 Op::Pow(-1.0),
             ] {
@@ -193,10 +204,10 @@ fn correctly_rounded_cuda_handles_empty_scalar_and_rejected_dtypes() {
             assert_eq!(out.shape(), &[] as &[usize]);
         }
         check(&client, &device, Op::Exp, &[0.5], "one element");
-        let names = ["cr_exp", "cr_log", "cr_log1p", "cr_pow_scalar"];
+        let names = ["cr_exp", "cr_log", "cr_log1p", "cr_acos", "cr_pow_scalar"];
         for dtype in [DType::F32, DType::I32, DType::I64, DType::U32] {
             let input = Tensor::<CudaRuntime>::empty(&[4], dtype, &device).unwrap();
-            for (op, name) in [Op::Exp, Op::Log, Op::Log1p, Op::Pow(2.0)]
+            for (op, name) in [Op::Exp, Op::Log, Op::Log1p, Op::Acos, Op::Pow(2.0)]
                 .into_iter()
                 .zip(names)
             {

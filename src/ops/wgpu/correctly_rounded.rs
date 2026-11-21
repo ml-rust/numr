@@ -19,6 +19,10 @@ impl CorrectlyRoundedOps<WgpuRuntime> for WgpuClient {
         reject(a, "cr_log1p")
     }
 
+    fn cr_acos(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        reject(a, "cr_acos")
+    }
+
     fn cr_pow_scalar(
         &self,
         a: &Tensor<WgpuRuntime>,

@@ -27,6 +27,11 @@ __global__ void cr_log1p_f64(const unsigned long long* in, unsigned int step, un
     out[i] = cr_bits(cr_log1p(x));
 }
 
+__global__ void cr_acos_f64(const unsigned long long* in, unsigned int step, unsigned long long* out, unsigned int n) {
+    CR_LANE_INDEX
+    out[i] = cr_bits(cr_acos(x));
+}
+
 // The exponent arrives as its bit pattern, so every encoding reaches the lane unchanged.
 __global__ void cr_pow_scalar_f64(const unsigned long long* in, unsigned int step, unsigned long long exponent_bits,
                                   unsigned long long* out, unsigned int n) {

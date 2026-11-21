@@ -324,6 +324,8 @@ fn compile_cuda_kernels() {
         "correctly_rounded_log.cuh",
         "correctly_rounded_log1p.cuh",
         "correctly_rounded_log1p_refine.cuh",
+        "correctly_rounded_acos.cuh",
+        "correctly_rounded_acos_refine.cuh",
         "correctly_rounded_pow_dint.cuh",
         "correctly_rounded_pow_fast.cuh",
         "correctly_rounded_pow_accurate.cuh",

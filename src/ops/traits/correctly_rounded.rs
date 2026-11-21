@@ -14,6 +14,10 @@ use crate::tensor::Tensor;
 ///   tensor of the same shape. An empty input gives an empty output.
 /// - `cr_exp`, `cr_log` and `cr_log1p`: each element is the infinitely precise result
 ///   rounded to nearest, ties to even, with gradual underflow. Overflow gives `+inf`.
+/// - `cr_acos`: each element is the infinitely precise result rounded to nearest, ties to
+///   even. No result is subnormal. Correct rounding on `[-1, -2^-4]` and `[2^-4, 1]` is
+///   proven by CORE-MATH's exhaustive search. For `|a| < 2^-4` no proof covers it, and
+///   MPFR tests find no misrounded input.
 /// - `cr_pow_scalar`: the same for every input pair whose final 256-bit rounding test
 ///   succeeds. CORE-MATH proves correct rounding of `pow` modulo the hardest-to-round
 ///   cases, which are unknown for binary64. No known input fails the test. If one does,
@@ -50,6 +54,11 @@ pub trait CorrectlyRoundedOps<R: Runtime> {
     /// `ln(1 + a)`, correctly rounded, without forming `1 + a`. See
     /// [`crate::algorithm::correctly_rounded::log1p`].
     fn cr_log1p(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Arc cosine of `a` in radians, in `[0, pi]`, correctly rounded. `|a| > 1` and NaN
+    /// give NaN. See [`crate::algorithm::correctly_rounded::acos`] for the rounding
+    /// guarantee.
+    fn cr_acos(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 
     /// `a^exponent` with a host exponent and C Annex F special values. See
     /// [`crate::algorithm::correctly_rounded::pow`] for the rounding guarantee.

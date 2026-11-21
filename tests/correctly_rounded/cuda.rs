@@ -3,7 +3,7 @@
 //! The host functions match MPFR in the sibling modules, so CUDA bits equal to host bits
 //! are correctly rounded too.
 
-use super::hard_cases::load;
+use super::hard_cases::{load, load_fixture};
 use super::oracle::Function;
 use super::pow_hard_cases::load_pow;
 use numr::algorithm::correctly_rounded as cr;
@@ -62,6 +62,16 @@ fn test_cuda_equals_host_on_every_hard_case() -> Result<()> {
             |x| function.numr(x),
         );
     }
+    Ok(())
+}
+
+#[test]
+fn test_cuda_acos_equals_host_on_every_hard_case() -> Result<()> {
+    let (client, device) = cuda();
+    let data = load_fixture("acos");
+    let input = Tensor::<CudaRuntime>::from_slice(&data, &[data.len()], &device)?;
+    let output = client.cr_acos(&input)?;
+    check_bits("acos hard cases", &data, &output.to_vec::<f64>(), cr::acos);
     Ok(())
 }
 

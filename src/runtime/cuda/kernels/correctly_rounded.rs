@@ -23,6 +23,8 @@ pub enum CrKernel {
     Log,
     /// `ln(1 + x)`.
     Log1p,
+    /// `acos(x)`.
+    Acos,
     /// `x^exponent`.
     PowScalar(f64),
 }
@@ -34,6 +36,7 @@ impl CrKernel {
             CrKernel::Exp => "cr_exp_f64",
             CrKernel::Log => "cr_log_f64",
             CrKernel::Log1p => "cr_log1p_f64",
+            CrKernel::Acos => "cr_acos_f64",
             CrKernel::PowScalar(_) => "cr_pow_scalar_f64",
         }
     }
