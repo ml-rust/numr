@@ -259,6 +259,28 @@ impl PipelineCache {
         })
     }
 
+    /// Create a bind group from buffer windows, one per binding in order.
+    pub fn create_bind_group_from_bindings(
+        &self,
+        layout: &BindGroupLayout,
+        bindings: &[BufferBinding<'_>],
+    ) -> BindGroup {
+        let entries: Vec<BindGroupEntry> = bindings
+            .iter()
+            .enumerate()
+            .map(|(i, binding)| BindGroupEntry {
+                binding: i as u32,
+                resource: BindingResource::Buffer(binding.clone()),
+            })
+            .collect();
+
+        self.device.create_bind_group(&BindGroupDescriptor {
+            label: Some("windowed_compute_bind_group"),
+            layout,
+            entries: &entries,
+        })
+    }
+
     /// Get or create a storage-buffer layout followed by one dynamic uniform.
     pub fn get_or_create_dynamic_uniform_layout(
         &self,

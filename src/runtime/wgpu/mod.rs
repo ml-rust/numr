@@ -25,6 +25,7 @@
 //! - `Runtime::copy_to_device` - Panics if write operation fails
 //! - `Runtime::copy_from_device` - Panics if read operation fails
 
+mod allocator;
 mod cache;
 pub(crate) mod client;
 mod device;

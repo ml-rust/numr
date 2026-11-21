@@ -14,7 +14,7 @@
 //! The kernels spread threads over a 2-D grid, so a tensor of any element
 //! count that fits u32 runs.
 
-use wgpu::{Buffer, Queue};
+use wgpu::{Buffer, BufferBinding, Queue};
 
 use super::copy::dispatch_grid;
 use super::pipeline::{LayoutKey, PipelineCache};
@@ -71,16 +71,19 @@ pub fn is_i64_cast_pair(src_dtype: DType, dst_dtype: DType) -> bool {
 
 /// Launch an I64 cast: `out[i] = DstType(a[i])` with CPU `as` semantics.
 ///
-/// `params_buffer` holds a `CastParams { numel }`. `numel` must be nonzero.
+/// `a` and `out` are the bound windows of the source and destination.
+/// `params_buffer` holds a `CastParams { numel }` for those windows. `numel`
+/// must be nonzero.
 ///
 /// # Errors
 ///
 /// `UnsupportedDType` when the pair is not I64 <-> F32, I32 or U32.
+#[allow(clippy::too_many_arguments)]
 pub fn launch_cast_i64_op(
     cache: &PipelineCache,
     queue: &Queue,
-    a: &Buffer,
-    out: &Buffer,
+    a: BufferBinding<'_>,
+    out: BufferBinding<'_>,
     params_buffer: &Buffer,
     numel: usize,
     src_dtype: DType,
@@ -106,7 +109,10 @@ pub fn launch_cast_i64_op(
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(module_name, entry_point, &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[a, out, params_buffer]);
+    let bind_group = cache.create_bind_group_from_bindings(
+        &layout,
+        &[a, out, params_buffer.as_entire_buffer_binding()],
+    );
 
     let (groups_x, groups_y) = dispatch_grid(numel);
     let mut encoder = cache
