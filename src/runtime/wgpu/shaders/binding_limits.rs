@@ -55,6 +55,7 @@ pub(super) fn binding_range_size(binding: &BufferBinding<'_>) -> u64 {
 /// # Errors
 ///
 /// `BackendLimitation` when a buffer binding exceeds the device's binding size limit.
+#[cfg(feature = "sparse")]
 pub(crate) fn create_checked_bind_group(
     device: &wgpu::Device,
     desc: &wgpu::BindGroupDescriptor<'_>,

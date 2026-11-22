@@ -67,11 +67,12 @@ pub mod sparse_merge_launcher;
 pub mod sparse_spmv_launcher;
 pub mod where_launcher;
 
+mod binding_limits;
 mod linalg_launchers;
 mod linalg_shaders;
-mod binding_limits;
 mod pipeline;
 
+#[cfg(feature = "sparse")]
 pub(crate) use binding_limits::create_checked_bind_group;
 
 #[cfg(feature = "sparse")]
