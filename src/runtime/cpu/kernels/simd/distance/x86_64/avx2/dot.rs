@@ -53,8 +53,14 @@ dot_avx2!(
     /// # Safety
     /// - The CPU must support AVX2 and FMA.
     /// - `a` and `b` must each be valid for `len` reads.
-    dot_f32, f32, 8,
-    _mm256_setzero_ps, _mm256_loadu_ps, _mm256_add_ps, _mm256_fmadd_ps, hsum_f32
+    dot_f32,
+    f32,
+    8,
+    _mm256_setzero_ps,
+    _mm256_loadu_ps,
+    _mm256_add_ps,
+    _mm256_fmadd_ps,
+    hsum_f32
 );
 
 dot_avx2!(
@@ -63,6 +69,12 @@ dot_avx2!(
     /// # Safety
     /// - The CPU must support AVX2 and FMA.
     /// - `a` and `b` must each be valid for `len` reads.
-    dot_f64, f64, 4,
-    _mm256_setzero_pd, _mm256_loadu_pd, _mm256_add_pd, _mm256_fmadd_pd, hsum_f64
+    dot_f64,
+    f64,
+    4,
+    _mm256_setzero_pd,
+    _mm256_loadu_pd,
+    _mm256_add_pd,
+    _mm256_fmadd_pd,
+    hsum_f64
 );

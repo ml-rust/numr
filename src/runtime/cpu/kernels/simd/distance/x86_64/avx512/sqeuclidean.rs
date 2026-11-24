@@ -56,9 +56,17 @@ sqeuclidean_avx512!(
     /// # Safety
     /// - The CPU must support AVX-512F.
     /// - `a` and `b` must each be valid for `len` reads.
-    sqeuclidean_f32, f32, 16, __mmask16,
-    _mm512_setzero_ps, _mm512_loadu_ps, _mm512_maskz_loadu_ps, _mm512_add_ps, _mm512_sub_ps,
-    _mm512_fmadd_ps, _mm512_reduce_add_ps
+    sqeuclidean_f32,
+    f32,
+    16,
+    __mmask16,
+    _mm512_setzero_ps,
+    _mm512_loadu_ps,
+    _mm512_maskz_loadu_ps,
+    _mm512_add_ps,
+    _mm512_sub_ps,
+    _mm512_fmadd_ps,
+    _mm512_reduce_add_ps
 );
 
 sqeuclidean_avx512!(
@@ -67,7 +75,15 @@ sqeuclidean_avx512!(
     /// # Safety
     /// - The CPU must support AVX-512F.
     /// - `a` and `b` must each be valid for `len` reads.
-    sqeuclidean_f64, f64, 8, __mmask8,
-    _mm512_setzero_pd, _mm512_loadu_pd, _mm512_maskz_loadu_pd, _mm512_add_pd, _mm512_sub_pd,
-    _mm512_fmadd_pd, _mm512_reduce_add_pd
+    sqeuclidean_f64,
+    f64,
+    8,
+    __mmask8,
+    _mm512_setzero_pd,
+    _mm512_loadu_pd,
+    _mm512_maskz_loadu_pd,
+    _mm512_add_pd,
+    _mm512_sub_pd,
+    _mm512_fmadd_pd,
+    _mm512_reduce_add_pd
 );

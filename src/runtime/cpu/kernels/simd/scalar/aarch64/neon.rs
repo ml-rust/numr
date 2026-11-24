@@ -74,7 +74,7 @@ pub unsafe fn scalar_f32(op: BinaryOp, a: *const f32, scalar: f32, out: *mut f32
             for i in 0..chunks {
                 let offset = i * F32_LANES;
                 let va = vld1q_f32(a.add(offset));
-                let result = vmaxq_f32(va, vs);
+                let result = vbslq_f32(vcgtq_f32(va, vs), va, vs);
                 vst1q_f32(out.add(offset), result);
             }
         }
@@ -82,7 +82,7 @@ pub unsafe fn scalar_f32(op: BinaryOp, a: *const f32, scalar: f32, out: *mut f32
             for i in 0..chunks {
                 let offset = i * F32_LANES;
                 let va = vld1q_f32(a.add(offset));
-                let result = vminq_f32(va, vs);
+                let result = vbslq_f32(vcltq_f32(va, vs), va, vs);
                 vst1q_f32(out.add(offset), result);
             }
         }
@@ -156,7 +156,7 @@ pub unsafe fn scalar_f64(op: BinaryOp, a: *const f64, scalar: f64, out: *mut f64
             for i in 0..chunks {
                 let offset = i * F64_LANES;
                 let va = vld1q_f64(a.add(offset));
-                let result = vmaxq_f64(va, vs);
+                let result = vbslq_f64(vcgtq_f64(va, vs), va, vs);
                 vst1q_f64(out.add(offset), result);
             }
         }
@@ -164,7 +164,7 @@ pub unsafe fn scalar_f64(op: BinaryOp, a: *const f64, scalar: f64, out: *mut f64
             for i in 0..chunks {
                 let offset = i * F64_LANES;
                 let va = vld1q_f64(a.add(offset));
-                let result = vminq_f64(va, vs);
+                let result = vbslq_f64(vcltq_f64(va, vs), va, vs);
                 vst1q_f64(out.add(offset), result);
             }
         }

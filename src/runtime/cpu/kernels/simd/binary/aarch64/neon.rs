@@ -144,7 +144,7 @@ unsafe fn binary_max_f32(a: *const f32, b: *const f32, out: *mut f32, chunks: us
         let offset = i * F32_LANES;
         let va = vld1q_f32(a.add(offset));
         let vb = vld1q_f32(b.add(offset));
-        let vr = vmaxq_f32(va, vb);
+        let vr = vbslq_f32(vcgtq_f32(va, vb), va, vb);
         vst1q_f32(out.add(offset), vr);
     }
 }
@@ -156,7 +156,7 @@ unsafe fn binary_min_f32(a: *const f32, b: *const f32, out: *mut f32, chunks: us
         let offset = i * F32_LANES;
         let va = vld1q_f32(a.add(offset));
         let vb = vld1q_f32(b.add(offset));
-        let vr = vminq_f32(va, vb);
+        let vr = vbslq_f32(vcltq_f32(va, vb), va, vb);
         vst1q_f32(out.add(offset), vr);
     }
 }
@@ -220,7 +220,7 @@ unsafe fn binary_max_f64(a: *const f64, b: *const f64, out: *mut f64, chunks: us
         let offset = i * F64_LANES;
         let va = vld1q_f64(a.add(offset));
         let vb = vld1q_f64(b.add(offset));
-        let vr = vmaxq_f64(va, vb);
+        let vr = vbslq_f64(vcgtq_f64(va, vb), va, vb);
         vst1q_f64(out.add(offset), vr);
     }
 }
@@ -232,7 +232,7 @@ unsafe fn binary_min_f64(a: *const f64, b: *const f64, out: *mut f64, chunks: us
         let offset = i * F64_LANES;
         let va = vld1q_f64(a.add(offset));
         let vb = vld1q_f64(b.add(offset));
-        let vr = vminq_f64(va, vb);
+        let vr = vbslq_f64(vcltq_f64(va, vb), va, vb);
         vst1q_f64(out.add(offset), vr);
     }
 }

@@ -10,22 +10,30 @@ use std::sync::Arc;
 
 impl_var_scalar_op_id!(
     /// Add scalar: z = a + scalar
-    var_add_scalar, add_scalar, AddScalarBackward
+    var_add_scalar,
+    add_scalar,
+    AddScalarBackward
 );
 
 impl_var_scalar_op_id!(
     /// Subtract scalar: z = a - scalar
-    var_sub_scalar, sub_scalar, SubScalarBackward
+    var_sub_scalar,
+    sub_scalar,
+    SubScalarBackward
 );
 
 impl_var_scalar_op_scalar!(
     /// Multiply by scalar: z = a * scalar
-    var_mul_scalar, mul_scalar, MulScalarBackward
+    var_mul_scalar,
+    mul_scalar,
+    MulScalarBackward
 );
 
 impl_var_scalar_op_scalar!(
     /// Divide by scalar: z = a / scalar
-    var_div_scalar, div_scalar, DivScalarBackward
+    var_div_scalar,
+    div_scalar,
+    DivScalarBackward
 );
 
 /// Power by scalar: z = a^scalar

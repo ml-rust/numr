@@ -12,28 +12,36 @@ impl_var_binary_op_shapes!(
     /// Add two variables: z = a + b
     ///
     /// Creates AddBackward for gradient computation.
-    var_add, add, AddBackward
+    var_add,
+    add,
+    AddBackward
 );
 
 impl_var_binary_op_shapes!(
     /// Subtract two variables: z = a - b
     ///
     /// Creates SubBackward for gradient computation.
-    var_sub, sub, SubBackward
+    var_sub,
+    sub,
+    SubBackward
 );
 
 impl_var_binary_op_tensors!(
     /// Multiply two variables: z = a * b
     ///
     /// Creates MulBackward for gradient computation.
-    var_mul, mul, MulBackward
+    var_mul,
+    mul,
+    MulBackward
 );
 
 impl_var_binary_op_tensors!(
     /// Divide two variables: z = a / b
     ///
     /// Creates DivBackward for gradient computation.
-    var_div, div, DivBackward
+    var_div,
+    div,
+    DivBackward
 );
 
 /// Power: z = a^b

@@ -55,8 +55,15 @@ manhattan_neon!(
     /// # Safety
     /// - The CPU must support NEON. Every AArch64 CPU does.
     /// - `a` and `b` must each be valid for `len` reads.
-    manhattan_f32, f32, 4,
-    vdupq_n_f32, vld1q_f32, vaddq_f32, vsubq_f32, vabsq_f32, vaddvq_f32
+    manhattan_f32,
+    f32,
+    4,
+    vdupq_n_f32,
+    vld1q_f32,
+    vaddq_f32,
+    vsubq_f32,
+    vabsq_f32,
+    vaddvq_f32
 );
 
 manhattan_neon!(
@@ -65,6 +72,13 @@ manhattan_neon!(
     /// # Safety
     /// - The CPU must support NEON. Every AArch64 CPU does.
     /// - `a` and `b` must each be valid for `len` reads.
-    manhattan_f64, f64, 2,
-    vdupq_n_f64, vld1q_f64, vaddq_f64, vsubq_f64, vabsq_f64, vaddvq_f64
+    manhattan_f64,
+    f64,
+    2,
+    vdupq_n_f64,
+    vld1q_f64,
+    vaddq_f64,
+    vsubq_f64,
+    vabsq_f64,
+    vaddvq_f64
 );

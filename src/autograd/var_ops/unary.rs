@@ -9,67 +9,89 @@ use crate::runtime::{Runtime, RuntimeClient};
 
 impl_var_unary_op_id!(
     /// Negation: z = -a
-    var_neg, neg, NegBackward
+    var_neg,
+    neg,
+    NegBackward
 );
 
 impl_var_unary_op_output!(
     /// Exponential: z = exp(a)
-    var_exp, exp, ExpBackward
+    var_exp,
+    exp,
+    ExpBackward
 );
 
 impl_var_unary_op_input!(
     /// Natural logarithm: z = log(a)
-    var_log, log, LogBackward
+    var_log,
+    log,
+    LogBackward
 );
 
 impl_var_unary_op_output_scalar!(
     /// Square root: z = sqrt(a)
     ///
     /// Requires ScalarOps bound for backward computation.
-    var_sqrt, sqrt, SqrtBackward
+    var_sqrt,
+    sqrt,
+    SqrtBackward
 );
 
 impl_var_unary_op_input!(
     /// Sine: z = sin(a)
-    var_sin, sin, SinBackward
+    var_sin,
+    sin,
+    SinBackward
 );
 
 impl_var_unary_op_input!(
     /// Cosine: z = cos(a)
-    var_cos, cos, CosBackward
+    var_cos,
+    cos,
+    CosBackward
 );
 
 impl_var_unary_op_output_scalar!(
     /// Hyperbolic tangent: z = tanh(a)
     ///
     /// Requires ScalarOps bound for backward computation.
-    var_tanh, tanh, TanhBackward
+    var_tanh,
+    tanh,
+    TanhBackward
 );
 
 impl_var_unary_op_input_scalar!(
     /// Square: z = a²
     ///
     /// Requires ScalarOps bound for backward computation.
-    var_square, square, SquareBackward
+    var_square,
+    square,
+    SquareBackward
 );
 
 impl_var_unary_op_output_scalar!(
     /// Reciprocal: z = 1/a
     ///
     /// Requires ScalarOps bound for backward computation.
-    var_recip, recip, RecipBackward
+    var_recip,
+    recip,
+    RecipBackward
 );
 
 impl_var_unary_op_input!(
     /// Absolute value: z = |a|
-    var_abs, abs, AbsBackward
+    var_abs,
+    abs,
+    AbsBackward
 );
 
 impl_var_unary_op_input_scalar!(
     /// Tangent: z = tan(a)
     ///
     /// Requires ScalarOps bound for backward computation.
-    var_tan, tan, TanBackward
+    var_tan,
+    tan,
+    TanBackward
 );
 
 #[cfg(test)]

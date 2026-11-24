@@ -51,8 +51,14 @@ dot_neon!(
     /// # Safety
     /// - The CPU must support NEON. Every AArch64 CPU does.
     /// - `a` and `b` must each be valid for `len` reads.
-    dot_f32, f32, 4,
-    vdupq_n_f32, vld1q_f32, vaddq_f32, vfmaq_f32, vaddvq_f32
+    dot_f32,
+    f32,
+    4,
+    vdupq_n_f32,
+    vld1q_f32,
+    vaddq_f32,
+    vfmaq_f32,
+    vaddvq_f32
 );
 
 dot_neon!(
@@ -61,6 +67,12 @@ dot_neon!(
     /// # Safety
     /// - The CPU must support NEON. Every AArch64 CPU does.
     /// - `a` and `b` must each be valid for `len` reads.
-    dot_f64, f64, 2,
-    vdupq_n_f64, vld1q_f64, vaddq_f64, vfmaq_f64, vaddvq_f64
+    dot_f64,
+    f64,
+    2,
+    vdupq_n_f64,
+    vld1q_f64,
+    vaddq_f64,
+    vfmaq_f64,
+    vaddvq_f64
 );

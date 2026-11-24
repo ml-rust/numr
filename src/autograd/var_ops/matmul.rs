@@ -11,7 +11,9 @@ impl_var_binary_op_tensors!(
     /// Matrix multiplication: z = a @ b
     ///
     /// Creates MatmulBackward for gradient computation.
-    var_matmul, matmul, MatmulBackward
+    var_matmul,
+    matmul,
+    MatmulBackward
 );
 
 #[cfg(test)]

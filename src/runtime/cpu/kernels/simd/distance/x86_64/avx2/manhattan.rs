@@ -58,9 +58,16 @@ manhattan_avx2!(
     /// # Safety
     /// - The CPU must support AVX2 and FMA.
     /// - `a` and `b` must each be valid for `len` reads.
-    manhattan_f32, f32, 8,
-    _mm256_setzero_ps, _mm256_set1_ps, _mm256_loadu_ps, _mm256_add_ps, _mm256_sub_ps,
-    _mm256_andnot_ps, hsum_f32
+    manhattan_f32,
+    f32,
+    8,
+    _mm256_setzero_ps,
+    _mm256_set1_ps,
+    _mm256_loadu_ps,
+    _mm256_add_ps,
+    _mm256_sub_ps,
+    _mm256_andnot_ps,
+    hsum_f32
 );
 
 manhattan_avx2!(
@@ -69,7 +76,14 @@ manhattan_avx2!(
     /// # Safety
     /// - The CPU must support AVX2 and FMA.
     /// - `a` and `b` must each be valid for `len` reads.
-    manhattan_f64, f64, 4,
-    _mm256_setzero_pd, _mm256_set1_pd, _mm256_loadu_pd, _mm256_add_pd, _mm256_sub_pd,
-    _mm256_andnot_pd, hsum_f64
+    manhattan_f64,
+    f64,
+    4,
+    _mm256_setzero_pd,
+    _mm256_set1_pd,
+    _mm256_loadu_pd,
+    _mm256_add_pd,
+    _mm256_sub_pd,
+    _mm256_andnot_pd,
+    hsum_f64
 );
