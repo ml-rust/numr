@@ -14,9 +14,13 @@ version. Every later entry is a delta against the one below it.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-24
+
 ### Added
 
 - `HypotOps::hypot`: Adds scaled floating magnitudes on CPU, CUDA, and WebGPU. Use `HypotOps` for stable elementwise magnitudes.
+- `TwoSumOps`, `MidpointOps`, `NextRepresentableOps`: Adds error-free addition, range-safe midpoints, and native next-representable values. Use them through runtime clients.
+- `FloatArithmeticContract`, `FusedMulAddContract`, `SqrtRoundingContract`: Declares portable basic F64/F32 arithmetic, FMA, and square-root rounding semantics per backend. Query them before selecting precision-sensitive algorithms.
 - `IntervalOps`, `ExpansionOps`: Run each outward interval or certified expansion operation in one pass with a shared status flag. Use them through `TensorOps` clients.
 - `CorrectlyRoundedOps`: Adds correctly rounded F64 `exp`, `log`, `log1p`, `acos` and `pow_scalar` with the same bits on CPU and CUDA. Use them when F64 results must reproduce.
 - `numr::algorithm::correctly_rounded`: Adds host `exp`, `log`, `log1p`, `acos` and `pow` with the tensor ops' bits. Use them for scalar values.
@@ -25,10 +29,12 @@ version. Every later entry is a delta against the one below it.
 ### Changed
 
 - `license`: Now `Apache-2.0 AND MIT`, for bundled CORE-MATH code. Check your licence policy.
+- `wgpu`: Reports oversized bindings as a backend limitation and casts tensors larger than the storage binding limit. Handle `BackendLimitation` errors on large WebGPU buffers.
 
 ### Fixed
 
 - `UnaryOps::neg`: AVX2 and AVX-512 lanes now flip the sign bit, so `-0.0` and NaN signs match the scalar tail. No action needed.
+- `wgpu`: Fixes missing barriers in fused add layer norm backward and multinomial without-replacement, and shares one process-wide instance across adapter queries. No action needed.
 
 ## [0.15.2] - 2026-11-06
 
