@@ -14,6 +14,29 @@ version. Every later entry is a delta against the one below it.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-25
+
+### Breaking
+
+- `Error::Cuda`: Wraps an opaque `CudaDriverError` instead of `cudarc::driver::DriverError`. Match on `CudaDriverError::code` or `message` instead of `cudarc` types.
+- `wgpu-raw-interop`: Moves `WgpuClient::install`, `wgpu_device`, `wgpu_queue`, `pipeline_cache`, buffer helpers, `get_buffer`, `WgpuDevice::{backend, limits}`, and `WgpuRawHandle::{device, queue}` behind the opt-in `wgpu-raw-interop` feature. Enable `wgpu-raw-interop` if you pass or inspect raw `wgpu` handles.
+- `cuda-raw-interop`: Moves `CudaClient::{stream_arc, context, copy_stream}`, `CudaRawHandle::{context, stream}`, `GuardedStream::{raw, arc, enqueue_permit, synchronize}`, `NcclCommunicator::{from_streams, from_rank, stream}`, and `runtime::cuda::kernels` behind the opt-in `cuda-raw-interop` feature. Enable `cuda-raw-interop` for raw `cudarc` interop.
+- `runtime::wgpu::shaders`, `runtime::cpu::{jacobi, special}`: Now crate-private. Use `runtime::wgpu::{LayoutKey, PipelineCache}` under `wgpu-raw-interop` instead of `runtime::wgpu::shaders`.
+- `non_exhaustive`: Marks extensible public enums across `ops`, `runtime`, `algorithm`, and `sparse` as `#[non_exhaustive]`. Add wildcard arms to exhaustive `match` expressions.
+
+### Added
+
+- `WgpuDevice::backend_name`: Returns the backend name as `&'static str` without exposing `wgpu::Backend`. Use it under the core `wgpu` feature.
+- `GuardedStream::sync`: Synchronizes the stream returning `numr::error::Result<()>` without exposing `cudarc::driver::DriverError`. Use it under the core `cuda` feature.
+- `CudaClient::warm_schedule_tuning`: Pre-warms per-device CUDA schedule-tuning caches without importing `runtime::cuda::kernels`. Call it before graph capture.
+- `NcclCommunicator::{from_clients, from_client_rank}`: Creates NCCL communicators from `&CudaClient` without raw `Arc<CudaStream>`. Use them under `nccl`.
+- `WgpuClient::{new_async, read_tensor_to_vec_async, read_scalar_async}`, `is_wgpu_available_async`, and `WgpuClient::read_buffer_async` (`wgpu-raw-interop`): Adds native-async WebGPU initialization and buffer/tensor readback without `pollster::block_on`, `mpsc::recv`, or `PollType::Wait` on `wasm32`. Use them in browser WebGPU runtimes.
+
+### Fixed
+
+- `wgpu`: Marks `binary*` and `compare*` shader inputs as `var<storage, read>` so aliased operands such as `mul(&x, &x)` pass browser WebGPU validation. No action needed.
+- `wgpu`: Replaces WGSL const-eval `bitcast<f32>` of infinities and NaNs with runtime bitcasts across reduction, logsumexp, sort, scatter_reduce, special, and semiring shaders so Tint/Chrome parses them cleanly. No action needed.
+
 ## [0.16.0] - 2026-11-24
 
 ### Added
