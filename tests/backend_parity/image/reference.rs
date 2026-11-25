@@ -28,6 +28,7 @@ pub fn to_canonical(shape: [usize; 4], layout: ConvLayout) -> [usize; 4] {
     match layout {
         ConvLayout::Nchw => shape,
         ConvLayout::Nhwc => [shape[0], shape[3], shape[1], shape[2]],
+        _ => unreachable!(),
     }
 }
 
@@ -36,6 +37,7 @@ pub fn from_canonical(dims: [usize; 4], layout: ConvLayout) -> [usize; 4] {
     match layout {
         ConvLayout::Nchw => dims,
         ConvLayout::Nhwc => [dims[0], dims[2], dims[3], dims[1]],
+        _ => unreachable!(),
     }
 }
 
@@ -45,6 +47,7 @@ fn linear(dims: [usize; 4], [n, c, h, w]: [usize; 4], layout: ConvLayout) -> usi
     match layout {
         ConvLayout::Nchw => ((n * cd + c) * hd + h) * wd + w,
         ConvLayout::Nhwc => ((n * hd + h) * wd + w) * cd + c,
+        _ => unreachable!(),
     }
 }
 

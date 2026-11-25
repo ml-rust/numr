@@ -5,6 +5,7 @@
 
 /// Activation function kind
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ActivationKind {
     /// ReLU: max(0, x)
     ReLU,

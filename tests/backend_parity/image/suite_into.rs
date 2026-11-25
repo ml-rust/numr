@@ -46,6 +46,7 @@ pub fn check_into_channel_slice<R: Runtime<DType = DType>, C: ImageOps<R>>(
                 let at = match layout {
                     ConvLayout::Nchw => ((n * cb + c) * hb + h) * wb + w,
                     ConvLayout::Nhwc => ((n * hb + h) * wb + w) * cb + c,
+                    _ => unreachable!(),
                 };
                 expected[at * elem..(at + 1) * elem].copy_from_slice(chunk);
             }
@@ -59,6 +60,7 @@ fn canonical_coords(i: usize, [_, c, h, w]: [usize; 4], layout: ConvLayout) -> [
     match layout {
         ConvLayout::Nchw => [i / (c * h * w), (i / (h * w)) % c, (i / w) % h, i % w],
         ConvLayout::Nhwc => [i / (h * w * c), i % c, (i / (w * c)) % h, (i / c) % w],
+        _ => unreachable!(),
     }
 }
 
@@ -133,6 +135,7 @@ pub fn check_nearest_golden<R: Runtime<DType = DType>, C: ImageOps<R>>(
         let swapped = match size {
             NearestSize::Size(h, w) => NearestSize::Size(w, h),
             NearestSize::Scale(h, w) => NearestSize::Scale(w, h),
+            _ => unreachable!(),
         };
         let y = client
             .upsample_nearest2d(&col, swapped, ConvLayout::Nhwc)

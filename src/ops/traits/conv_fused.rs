@@ -13,6 +13,7 @@ use crate::tensor::Tensor;
 
 /// Memory layout of a fused convolution's input, weight and output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ConvLayout {
     /// Input `[N, C, H, W]`, weight `[C_out, C_in/groups, Kh, Kw]` (OIHW),
     /// output `[N, C_out, H_out, W_out]`.
@@ -23,6 +24,7 @@ pub enum ConvLayout {
 }
 
 /// Activation applied after the bias add.
+#[non_exhaustive]
 pub enum ConvActivation<'a, R: Runtime> {
     /// Identity.
     None,

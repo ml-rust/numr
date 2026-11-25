@@ -15,6 +15,7 @@ use crate::tensor::Tensor;
 ///
 /// Both forms give `(height, width)` in that order.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum NearestSize {
     /// Scale factors `(sh, sw)`. Each must be finite and positive.
     ///

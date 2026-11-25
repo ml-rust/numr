@@ -5,6 +5,7 @@ use crate::tensor::Tensor;
 
 /// Which eigenvalues to compute
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[non_exhaustive]
 pub enum WhichEigenvalues {
     /// Largest eigenvalues by magnitude
     #[default]

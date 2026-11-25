@@ -4,8 +4,8 @@ struct BinaryParams {
     numel: u32,
 }
 
-@group(0) @binding(0) var<storage, read_write> binary_a: array<i32>;
-@group(0) @binding(1) var<storage, read_write> binary_b: array<i32>;
+@group(0) @binding(0) var<storage, read> binary_a: array<i32>;
+@group(0) @binding(1) var<storage, read> binary_b: array<i32>;
 @group(0) @binding(2) var<storage, read_write> binary_out: array<i32>;
 @group(0) @binding(3) var<uniform> binary_params: BinaryParams;
 

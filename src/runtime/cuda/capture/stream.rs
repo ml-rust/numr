@@ -75,10 +75,30 @@ impl GuardedStream {
     /// # Errors
     ///
     /// Returns the driver's error when the context cannot be made current.
+    #[cfg(feature = "cuda-raw-interop")]
     #[inline]
     pub fn enqueue_permit(&self) -> Result<EnqueuePermit<'_>, DriverError> {
+        self.enqueue_permit_inner()
+    }
+
+    #[cfg(not(feature = "cuda-raw-interop"))]
+    #[inline]
+    pub(crate) fn enqueue_permit(&self) -> Result<EnqueuePermit<'_>, DriverError> {
+        self.enqueue_permit_inner()
+    }
+
+    fn enqueue_permit_inner(&self) -> Result<EnqueuePermit<'_>, DriverError> {
         bind_context(self.stream.context())?;
         Ok(EnqueuePermit::acquire(&self.lock, self.device_index))
+    }
+
+    /// Wait for every operation already submitted to this stream.
+    ///
+    /// Returns [`crate::error::Result`] without exposing `cudarc` error types.
+    pub fn sync(&self) -> crate::error::Result<()> {
+        let _permit = self.enqueue_permit_inner()?;
+        self.stream.synchronize()?;
+        Ok(())
     }
 
     /// Wait for every operation already submitted to this stream.
@@ -95,8 +115,15 @@ impl GuardedStream {
     /// # Errors
     ///
     /// Returns the driver's error when the wait fails.
+    #[cfg(feature = "cuda-raw-interop")]
     pub fn synchronize(&self) -> Result<(), DriverError> {
-        let _permit = self.enqueue_permit()?;
+        let _permit = self.enqueue_permit_inner()?;
+        self.stream.synchronize()
+    }
+
+    #[cfg(not(feature = "cuda-raw-interop"))]
+    pub(crate) fn synchronize(&self) -> Result<(), DriverError> {
+        let _permit = self.enqueue_permit_inner()?;
         self.stream.synchronize()
     }
 
@@ -111,14 +138,28 @@ impl GuardedStream {
     /// it — must run under [`GuardedStream::enqueue_permit`], whether taken
     /// by the caller or by the wrapper it goes through. The permit also makes
     /// the stream's context current, which a direct driver call needs.
+    #[cfg(feature = "cuda-raw-interop")]
     #[inline]
     pub fn raw(&self) -> &CudaStream {
         &self.stream
     }
 
+    #[cfg(not(feature = "cuda-raw-interop"))]
+    #[inline]
+    pub(crate) fn raw(&self) -> &CudaStream {
+        &self.stream
+    }
+
     /// The reference-counted stream, for handles that must own it.
+    #[cfg(feature = "cuda-raw-interop")]
     #[inline]
     pub fn arc(&self) -> &Arc<CudaStream> {
+        &self.stream
+    }
+
+    #[cfg(not(feature = "cuda-raw-interop"))]
+    #[inline]
+    pub(crate) fn arc(&self) -> &Arc<CudaStream> {
         &self.stream
     }
 

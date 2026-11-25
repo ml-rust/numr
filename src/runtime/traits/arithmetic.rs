@@ -5,6 +5,7 @@
 /// Algorithms requiring strict arithmetic must check this declaration and their active execution environment.
 /// Sampled arithmetic probes cannot establish a stronger provider contract.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum FloatArithmeticContract {
     /// No portable IEEE rounding or gradual-underflow guarantee is declared for this dtype.
     #[default]

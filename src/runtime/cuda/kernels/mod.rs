@@ -8,6 +8,8 @@
 //! Kernels are written in CUDA C++ (.cu files) and compiled to multi-arch
 //! fatbins by build.rs. Each fatbin is loaded at runtime and cached
 //! per-device for efficient reuse.
+
+#![allow(dead_code, unused_imports)]
 //!
 //! # Module Organization
 //!

@@ -758,6 +758,7 @@ pub trait SparseOps<R: Runtime<DType = DType>>: Sized {
 
 /// Norm type for computing row/column norms
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum NormType {
     /// L1 norm: sum of absolute values
     L1,

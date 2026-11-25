@@ -347,6 +347,7 @@ pub struct TuckerOptions {
 
 /// Initialization methods for Tucker decomposition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum TuckerInit {
     /// Higher-Order SVD initialization (recommended).
     ///
@@ -461,6 +462,7 @@ pub struct CpOptions {
 
 /// Initialization methods for CP decomposition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum CpInit {
     /// Random initialization (recommended for general use).
     ///

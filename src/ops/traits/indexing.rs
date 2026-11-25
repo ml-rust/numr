@@ -10,6 +10,7 @@ use crate::tensor::Tensor;
 /// When multiple source values scatter to the same destination index,
 /// this enum determines how they are combined.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ScatterReduceOp {
     /// Sum all values that scatter to the same index
     Sum,

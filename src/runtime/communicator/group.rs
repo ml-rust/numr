@@ -13,6 +13,7 @@ use crate::error::{Error, Result};
 
 /// Dimension of parallelism.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ParallelDim {
     /// Data parallelism: replicate model, shard data.
     Data,

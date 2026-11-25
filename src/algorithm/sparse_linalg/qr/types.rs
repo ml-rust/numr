@@ -129,6 +129,7 @@ impl QrOptions {
 
 /// Column ordering strategy for QR factorization
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum QrOrdering {
     /// No column permutation (identity permutation, original column order).
     Identity,

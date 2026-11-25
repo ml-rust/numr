@@ -187,6 +187,7 @@ pub fn create_trsv_layout(device: &wgpu::Device) -> BindGroupLayout {
 impl WgpuClient {
     /// Wait for GPU operations to complete.
     pub(super) fn poll_wait(&self) {
+        #[cfg(not(target_arch = "wasm32"))]
         let _ = self.wgpu_device.poll(wgpu::PollType::Wait {
             submission_index: None,
             timeout: Some(Duration::from_secs(60)),

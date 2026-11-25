@@ -5,6 +5,8 @@
 //! Shaders are static `.wgsl` files embedded at compile time via `include_str!()`.
 //! WebGPU supports F32, I32, U32 only (no F64/F16/BF16).
 
+#![allow(dead_code, unused_imports)]
+
 pub mod advanced_random;
 pub mod cast_32;
 pub mod cast_i64;

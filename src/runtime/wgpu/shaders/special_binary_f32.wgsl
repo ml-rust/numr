@@ -128,7 +128,8 @@ fn gammaincc_cf(a: f32, x: f32) -> f32 {
 
 fn gammainc_impl(a: f32, x: f32) -> f32 {
     if (x < 0.0 || a <= 0.0) {
-        return bitcast<f32>(0x7FC00000u); // NaN
+        var nan_bits: u32 = 0x7FC00000u;
+        return bitcast<f32>(nan_bits); // NaN
     }
     if (x == 0.0) {
         return 0.0;
@@ -141,7 +142,8 @@ fn gammainc_impl(a: f32, x: f32) -> f32 {
 
 fn gammaincc_impl(a: f32, x: f32) -> f32 {
     if (x < 0.0 || a <= 0.0) {
-        return bitcast<f32>(0x7FC00000u); // NaN
+        var nan_bits: u32 = 0x7FC00000u;
+        return bitcast<f32>(nan_bits); // NaN
     }
     if (x == 0.0) {
         return 1.0;

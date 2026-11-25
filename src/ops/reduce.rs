@@ -8,6 +8,7 @@ use crate::error::{Error, Result};
 
 /// Reduction operation kind
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ReduceOp {
     /// Sum of elements
     Sum,

@@ -110,6 +110,7 @@ pub fn check_packed_rgb24_views<R: Runtime<DType = DType>, C: ColorOps<R>>(
         let (shape, dim) = match layout {
             ConvLayout::Nchw => ([1, 5, h, w], 1),
             ConvLayout::Nhwc => ([1, h, w, 5], 3),
+            _ => unreachable!(),
         };
         let buf = Tensor::<R>::full_scalar(&shape, DType::F32, 7.0, device).expect("buffer");
         let out = buf.narrow(dim, 1, 3).expect("channel slice");
@@ -175,6 +176,7 @@ pub fn check_packed_rgb24_ties_and_clamps<R: Runtime<DType = DType>, C: ColorOps
         let shape = match layout {
             ConvLayout::Nchw => [1, 3, 1, n],
             ConvLayout::Nhwc => [1, 1, n, 3],
+            _ => unreachable!(),
         };
         let rgb =
             Tensor::<R>::from_slice(&to_layout(&chw, 1, n, layout), &shape, device).expect("rgb");

@@ -7,8 +7,8 @@ struct BroadcastBinaryParams {
     ndim: u32,
 }
 
-@group(0) @binding(0) var<storage, read_write> broadcast_a: array<f32>;
-@group(0) @binding(1) var<storage, read_write> broadcast_b: array<f32>;
+@group(0) @binding(0) var<storage, read> broadcast_a: array<f32>;
+@group(0) @binding(1) var<storage, read> broadcast_b: array<f32>;
 @group(0) @binding(2) var<storage, read_write> broadcast_out: array<f32>;
 @group(0) @binding(3) var<storage, read_write> broadcast_a_strides: array<u32>;
 @group(0) @binding(4) var<storage, read_write> broadcast_b_strides: array<u32>;

@@ -1,3 +1,7 @@
+fn f32_from_bits(bits: u32) -> f32 {
+    return bitcast<f32>(bits);
+}
+
 // Dimension-wise reductions. F32 only.
 // Entry points: reduce_sum_f32, reduce_mean_f32, reduce_max_f32, reduce_min_f32,
 //               reduce_prod_f32, reduce_any_f32, reduce_all_f32
@@ -142,7 +146,7 @@ fn reduce_max_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
     let inner = output_idx % inner_size;
     let base_offset = outer * reduce_size * inner_size + inner;
 
-    var max_val: f32 = bitcast<f32>(0xff800000u); // -inf: max's identity
+    var max_val: f32 = f32_from_bits(0xff800000u); // -inf: max's identity
     var i: u32 = tid;
     while (i < reduce_size) {
         let input_idx = base_offset + i * inner_size;
@@ -188,7 +192,7 @@ fn reduce_min_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
     let inner = output_idx % inner_size;
     let base_offset = outer * reduce_size * inner_size + inner;
 
-    var min_val: f32 = bitcast<f32>(0x7f800000u); // +inf: min's identity
+    var min_val: f32 = f32_from_bits(0x7f800000u); // +inf: min's identity
     var i: u32 = tid;
     while (i < reduce_size) {
         let input_idx = base_offset + i * inner_size;

@@ -7,6 +7,7 @@ use crate::algorithm::sparse_linalg::IluFillLevel;
 /// Provides actionable information about solver behavior for diagnostics
 /// and adaptive preconditioning strategies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ConvergenceReason {
     /// Converged: ||r|| < atol (absolute tolerance met)
     AbsoluteTolerance,
@@ -125,6 +126,7 @@ pub struct GmresDiagnostics {
 ///
 /// GMRES uses right preconditioning to preserve the true residual.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum PreconditionerType {
     /// No preconditioning (identity preconditioner)
     #[default]

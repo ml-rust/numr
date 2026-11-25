@@ -33,6 +33,7 @@ fn channel_dim(layout: ConvLayout) -> isize {
     match layout {
         ConvLayout::Nchw => 1,
         ConvLayout::Nhwc => -1,
+        _ => unreachable!(),
     }
 }
 
@@ -40,6 +41,7 @@ fn shape_in(layout: ConvLayout, n: usize, c: usize, h: usize, w: usize) -> [usiz
     match layout {
         ConvLayout::Nchw => [n, c, h, w],
         ConvLayout::Nhwc => [n, h, w, c],
+        _ => unreachable!(),
     }
 }
 
@@ -48,6 +50,7 @@ fn weight_in(layout: ConvLayout, c_out: usize, c_in: usize) -> [usize; 4] {
     match layout {
         ConvLayout::Nchw => [c_out, c_in, KERNEL, KERNEL],
         ConvLayout::Nhwc => [c_out, KERNEL, KERNEL, c_in],
+        _ => unreachable!(),
     }
 }
 
@@ -60,6 +63,7 @@ fn dense_data(layout: ConvLayout) -> Vec<f64> {
             let (c, p) = match layout {
                 ConvLayout::Nchw => (flat / pixels, flat % pixels),
                 ConvLayout::Nhwc => (flat % DENSE_CHANNELS, flat / DENSE_CHANNELS),
+                _ => unreachable!(),
             };
             if c < DENSE_BASE {
                 data[p * DENSE_BASE + c]

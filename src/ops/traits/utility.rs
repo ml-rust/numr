@@ -7,6 +7,7 @@ use crate::tensor::Tensor;
 
 /// Indexing mode for meshgrid
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum MeshgridIndexing {
     /// Matrix indexing (default): first dimension corresponds to first input
     Ij,

@@ -6,6 +6,7 @@ use crate::tensor::Tensor;
 
 /// How [`ShapeOps::pad_mode`] fills the padded region of a tensor.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum PadMode {
     /// Fill the padded region with a constant value, as [`ShapeOps::pad`] does.
     Constant(f64),

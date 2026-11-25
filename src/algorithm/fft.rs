@@ -53,6 +53,7 @@ use crate::tensor::Tensor;
 
 /// Direction of FFT computation
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum FftDirection {
     /// Forward FFT: time domain → frequency domain
     /// Uses twiddle factor: e^(-2πi * k / N)
@@ -82,6 +83,7 @@ pub enum FftDirection {
 /// | Ortho    | 1/√N          | 1/√N           | ifft(fft(x)) = x  |
 /// | Forward  | 1/N           | 1              | ifft(fft(x)) = x  |
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum FftNormalization {
     /// No normalization (forward: 1, inverse: 1)
     ///

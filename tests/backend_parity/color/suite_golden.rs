@@ -65,6 +65,7 @@ pub fn check_decode_into_slice<R: Runtime<DType = DType>, C: ColorOps<R>>(
         let (shape, dim) = match layout {
             ConvLayout::Nchw => ([1, 5, c.h, c.w], 1),
             ConvLayout::Nhwc => ([1, c.h, c.w, 5], 3),
+            _ => unreachable!(),
         };
         let buf = Tensor::<R>::full_scalar(&shape, DType::F32, 7.0, device).expect("buffer");
         let out = buf.narrow(dim, 1, 3).expect("channel slice");

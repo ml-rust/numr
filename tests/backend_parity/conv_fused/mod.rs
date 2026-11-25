@@ -270,6 +270,7 @@ where
             to_layout(&ops.w, OIHW_TO_OHWI),
             to_layout(&ops.residual, NCHW_TO_NHWC),
         ),
+        _ => unreachable!(),
     };
     let activation = match act {
         Act::None => ConvActivation::None,
@@ -299,5 +300,6 @@ where
     match layout {
         ConvLayout::Nchw => out,
         ConvLayout::Nhwc => to_layout(&out, NHWC_TO_NCHW),
+        _ => unreachable!(),
     }
 }

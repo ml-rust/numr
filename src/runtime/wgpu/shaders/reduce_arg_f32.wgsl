@@ -48,7 +48,7 @@ fn arg_reduce_f32(is_max: bool, tid: u32, output_idx: u32) {
     let base_offset = outer * reduce_size * inner_size + inner;
 
     // Seed with the identity: -inf for max, +inf for min.
-    var best: f32 = select(bitcast<f32>(0x7f800000u), bitcast<f32>(0xff800000u), is_max);
+    var best: f32 = select(f32_from_bits(0x7f800000u), f32_from_bits(0xff800000u), is_max);
     var best_idx: u32 = ARG_NO_INDEX;
     var i: u32 = tid;
 

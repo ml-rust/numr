@@ -78,6 +78,7 @@ pub use triangular_shape::{TriangularSolveShape, validate_triangular_solve};
 /// # Ok::<(), numr::error::Error>(())
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum MatrixNormOrder {
     /// Frobenius norm: sqrt(sum(`A[i,j]`²))
     ///

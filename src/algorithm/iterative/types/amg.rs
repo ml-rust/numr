@@ -6,6 +6,7 @@ use crate::tensor::Tensor;
 
 /// V-cycle type for AMG
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum AmgCycleType {
     /// V-cycle: down-smooth → restrict → coarse-solve → prolongate → up-smooth
     #[default]

@@ -1,3 +1,7 @@
+fn f32_from_bits(bits: u32) -> f32 {
+    return bitcast<f32>(bits);
+}
+
 // Semiring matmul: min_plus for f32
 // C[i,j] = min_k( A[i,k] + B[k,j] )
 // Entry points: semiring_matmul_min_plus_f32, batched_semiring_matmul_min_plus_f32
@@ -37,7 +41,7 @@ fn semiring_matmul_min_plus_f32(
         return;
     }
 
-    var acc: f32 = bitcast<f32>(0x7f800000u);
+    var acc: f32 = f32_from_bits(0x7f800000u);
 
     for (var kk: u32 = 0u; kk < K; kk = kk + 1u) {
         let a_val = sr_a[row * K + kk];
@@ -73,7 +77,7 @@ fn batched_semiring_matmul_min_plus_f32(
     let b_offset = batch * K * N;
     let c_offset = batch * M * N;
 
-    var acc: f32 = bitcast<f32>(0x7f800000u);
+    var acc: f32 = f32_from_bits(0x7f800000u);
 
     for (var kk: u32 = 0u; kk < K; kk = kk + 1u) {
         let a_val = sr_a[a_offset + row * K + kk];

@@ -9,6 +9,7 @@ use crate::tensor::Tensor;
 
 /// Distance metric for pairwise distance computation.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum DistanceMetric {
     /// Euclidean (L2) distance: sqrt(sum((x - y)^2))
     Euclidean,

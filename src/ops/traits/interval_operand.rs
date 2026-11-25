@@ -51,6 +51,7 @@ pub type ExpansionTriple<R> = (Tensor<R>, Tensor<R>, Tensor<R>);
 
 /// Enclosure rule for a binary interval operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum IntervalEnclosure {
     /// Outward rounding with exact-zero and exact-one identities only.
     Outward,

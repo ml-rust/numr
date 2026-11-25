@@ -236,19 +236,42 @@ impl CudaClient {
             .unwrap_or(false)
     }
 
+    /// Pre-warm per-device CUDA schedule-tuning caches on this client.
+    ///
+    /// Call once after creating the client and before entering a CUDA graph
+    /// capture so subsequent tuned kernel lookups hit a warm cache.
+    pub fn warm_schedule_tuning(&self) {
+        let _ = super::kernels::smallm_max_waves(self);
+    }
+
     /// Get the Arc-wrapped CUDA stream for operations that need ownership.
+    #[cfg(feature = "cuda-raw-interop")]
     #[inline]
     pub fn stream_arc(&self) -> &Arc<CudaStream> {
         self.stream.arc()
     }
 
+    #[cfg(all(feature = "nccl", not(feature = "cuda-raw-interop")))]
+    #[inline]
+    pub(crate) fn stream_arc(&self) -> &Arc<CudaStream> {
+        self.stream.arc()
+    }
+
     /// Get reference to the CUDA context.
+    #[cfg(feature = "cuda-raw-interop")]
     #[inline]
     pub fn context(&self) -> &Arc<CudaContext> {
         &self.context
     }
 
+    #[cfg(not(feature = "cuda-raw-interop"))]
+    #[inline]
+    pub(crate) fn context(&self) -> &Arc<CudaContext> {
+        &self.context
+    }
+
     /// Get reference to the copy stream (for overlapped D2H transfers).
+    #[cfg(feature = "cuda-raw-interop")]
     #[inline]
     pub fn copy_stream(&self) -> &CudaStream {
         &self.copy_stream
@@ -498,7 +521,24 @@ impl RuntimeClient<CudaRuntime> for CudaClient {
 #[derive(Clone)]
 pub struct CudaRawHandle {
     /// CUDA context for device management
-    pub context: Arc<CudaContext>,
+    #[cfg_attr(not(feature = "cuda-raw-interop"), allow(dead_code))]
+    pub(crate) context: Arc<CudaContext>,
     /// CUDA stream for kernel execution
-    pub stream: Arc<CudaStream>,
+    #[cfg_attr(not(feature = "cuda-raw-interop"), allow(dead_code))]
+    pub(crate) stream: Arc<CudaStream>,
+}
+
+#[cfg(feature = "cuda-raw-interop")]
+impl CudaRawHandle {
+    /// Raw `cudarc` context handle.
+    #[inline]
+    pub fn context(&self) -> &Arc<CudaContext> {
+        &self.context
+    }
+
+    /// Raw `cudarc` stream handle.
+    #[inline]
+    pub fn stream(&self) -> &Arc<CudaStream> {
+        &self.stream
+    }
 }

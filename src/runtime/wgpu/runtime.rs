@@ -10,6 +10,7 @@ use super::client::WgpuClient;
 use super::device::WgpuDevice;
 use super::shaders;
 use crate::runtime::{Allocator, NoOpGraph, Runtime, RuntimeClient};
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
 /// WebGPU Runtime adapter
@@ -124,75 +125,90 @@ impl Runtime for WgpuRuntime {
             return Ok(());
         }
 
-        let client = get_or_create_client(device).map_err(wgpu_err)?;
-
-        // Get the source buffer from registry
-        let buffer = super::client::get_buffer(src).ok_or_else(|| {
-            crate::error::Error::Backend("Buffer not found for copy_from_device".into())
-        })?;
-
-        // `copy_buffer_to_buffer` and `map_async` both reject a size that is
-        // not a multiple of 4. A payload whose length is not a multiple of 4 —
-        // a run of 18-byte GGUF blocks, a TCF payload with an odd super-block
-        // count — is staged and mapped at its rounded-up length. `allocate`
-        // rounded the source buffer up the same way, so the extra bytes are in
-        // bounds, and only the first `dst.len()` bytes reach the caller.
-        let aligned_len = dst.len().div_ceil(4) * 4;
-
-        // Create a staging buffer for readback
-        let staging = client.create_staging_buffer("copy_staging", aligned_len as u64);
-
-        // Copy from storage to staging
-        let mut encoder =
-            client
-                .wgpu_device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("copy_from_device"),
-                });
-        encoder.copy_buffer_to_buffer(&buffer, 0, &staging, 0, aligned_len as u64);
-        client.submit_and_wait(encoder);
-
-        // Read from staging buffer
-        let slice = staging.slice(..);
-
-        let (sender, receiver) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |result| {
-            let _ = sender.send(result);
-        });
-
-        client
-            .wgpu_device
-            .poll(wgpu::PollType::Wait {
-                submission_index: None,
-                timeout: Some(Duration::from_secs(60)),
-            })
-            .map_err(|e| {
-                crate::error::Error::Backend(format!(
-                    "GPU poll failed during copy_from_device: {e}"
-                ))
-            })?;
-
-        // Check map_async result
-        let map_result = receiver.recv().map_err(|_| {
-            crate::error::Error::Backend(
-                "map_async callback was not invoked during copy_from_device".into(),
-            )
-        })?;
-        map_result.map_err(|e| {
-            crate::error::Error::Backend(format!("map_async failed during copy_from_device: {e}"))
-        })?;
-
+        #[cfg(target_arch = "wasm32")]
         {
-            let data = slice.get_mapped_range().map_err(|e| {
-                crate::error::Error::Backend(format!(
-                    "get_mapped_range failed during copy_from_device: {e}"
-                ))
-            })?;
-            dst.copy_from_slice(&data[..dst.len()]);
+            let _ = (src, dst, device);
+            return Err(crate::error::Error::Backend(
+                "synchronous copy_from_device is not supported on wasm32; use \
+                 WgpuClient::read_tensor_to_vec_async or WgpuClient::read_scalar_async"
+                    .into(),
+            ));
         }
 
-        staging.unmap();
-        Ok(())
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let client = get_or_create_client(device).map_err(wgpu_err)?;
+
+            // Get the source buffer from registry
+            let buffer = super::client::get_buffer(src).ok_or_else(|| {
+                crate::error::Error::Backend("Buffer not found for copy_from_device".into())
+            })?;
+
+            // `copy_buffer_to_buffer` and `map_async` both reject a size that is
+            // not a multiple of 4. A payload whose length is not a multiple of 4 —
+            // a run of 18-byte GGUF blocks, a TCF payload with an odd super-block
+            // count — is staged and mapped at its rounded-up length. `allocate`
+            // rounded the source buffer up the same way, so the extra bytes are in
+            // bounds, and only the first `dst.len()` bytes reach the caller.
+            let aligned_len = dst.len().div_ceil(4) * 4;
+
+            // Create a staging buffer for readback
+            let staging = client.create_staging_buffer("copy_staging", aligned_len as u64);
+
+            // Copy from storage to staging
+            let mut encoder =
+                client
+                    .wgpu_device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("copy_from_device"),
+                    });
+            encoder.copy_buffer_to_buffer(&buffer, 0, &staging, 0, aligned_len as u64);
+            client.submit_and_wait(encoder);
+
+            // Read from staging buffer
+            let slice = staging.slice(..);
+
+            let (sender, receiver) = std::sync::mpsc::channel();
+            slice.map_async(wgpu::MapMode::Read, move |result| {
+                let _ = sender.send(result);
+            });
+
+            client
+                .wgpu_device
+                .poll(wgpu::PollType::Wait {
+                    submission_index: None,
+                    timeout: Some(Duration::from_secs(60)),
+                })
+                .map_err(|e| {
+                    crate::error::Error::Backend(format!(
+                        "GPU poll failed during copy_from_device: {e}"
+                    ))
+                })?;
+
+            // Check map_async result
+            let map_result = receiver.recv().map_err(|_| {
+                crate::error::Error::Backend(
+                    "map_async callback was not invoked during copy_from_device".into(),
+                )
+            })?;
+            map_result.map_err(|e| {
+                crate::error::Error::Backend(format!(
+                    "map_async failed during copy_from_device: {e}"
+                ))
+            })?;
+
+            {
+                let data = slice.get_mapped_range().map_err(|e| {
+                    crate::error::Error::Backend(format!(
+                        "get_mapped_range failed during copy_from_device: {e}"
+                    ))
+                })?;
+                dst.copy_from_slice(&data[..dst.len()]);
+            }
+
+            staging.unmap();
+            Ok(())
+        }
     }
 
     /// Copy data within device memory.
@@ -309,9 +325,24 @@ pub fn wgpu_device_id(index: usize) -> WgpuDevice {
     WgpuDevice::new(index)
 }
 
-/// Check if WebGPU is available on this system
+/// Check if WebGPU is available on this system.
+///
+/// On `wasm32`, returns `true` only if a client has already been initialized via
+/// [`WgpuClient::new_async`]; use [`is_wgpu_available_async`] to probe asynchronously.
 pub fn is_wgpu_available() -> bool {
-    super::device::query_adapter_info_blocking(0).is_ok()
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        super::device::query_adapter_info_blocking(0).is_ok()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        super::cache::get_cached_client(&WgpuDevice::new(0)).is_some()
+    }
+}
+
+/// Check asynchronously whether a WebGPU adapter is available.
+pub async fn is_wgpu_available_async() -> bool {
+    super::device::query_adapter_info(0).await.is_ok()
 }
 
 // ============================================================================

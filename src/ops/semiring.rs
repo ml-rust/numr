@@ -17,6 +17,7 @@ use crate::dtype::{DType, Element};
 /// Each variant encodes both the reduce (⊕) and combine (⊗) operations:
 /// `C[i,j] = ⊕_k (A[i,k] ⊗ B[k,j])`
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum SemiringOp {
     /// (min, +) — shortest path distances
     MinPlus,

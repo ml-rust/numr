@@ -56,7 +56,7 @@ fn full_reduce_max_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
     let wid = group_id.x;
     let numel = full_reduce_params.numel;
 
-    var max_val: f32 = bitcast<f32>(0xff800000u); // -inf: max's identity
+    var max_val: f32 = f32_from_bits(0xff800000u); // -inf: max's identity
     var i: u32 = wid * WORKGROUP_SIZE + tid;
     let stride = num_groups.x * WORKGROUP_SIZE;
 
@@ -89,7 +89,7 @@ fn full_reduce_min_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
     let wid = group_id.x;
     let numel = full_reduce_params.numel;
 
-    var min_val: f32 = bitcast<f32>(0x7f800000u); // +inf: min's identity
+    var min_val: f32 = f32_from_bits(0x7f800000u); // +inf: min's identity
     var i: u32 = wid * WORKGROUP_SIZE + tid;
     let stride = num_groups.x * WORKGROUP_SIZE;
 

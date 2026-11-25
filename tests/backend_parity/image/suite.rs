@@ -38,6 +38,7 @@ pub fn ref_op(api: Api, [_, _, h, w]: [usize; 4]) -> RefOp {
             rows: nearest_table(h, oh, None),
             cols: nearest_table(w, ow, None),
         },
+        Api::Nearest(_) => unreachable!(),
     }
 }
 

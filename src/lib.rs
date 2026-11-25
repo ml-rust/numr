@@ -25,15 +25,18 @@
 //!
 //! ## Quick Start
 //!
-//! ```rust,ignore
+//! ```rust
 //! use numr::prelude::*;
 //!
-//! let device = CpuDevice;
-//! let a = Tensor::<CpuRuntime>::from_slice(&[1.0, 2.0, 3.0, 4.0], &[2, 2], &device).unwrap();
-//! let b = Tensor::<CpuRuntime>::from_slice(&[5.0, 6.0, 7.0, 8.0], &[2, 2], &device).unwrap();
+//! let device = CpuDevice::new();
+//! let client = CpuRuntime::default_client(&device);
+//! let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &device).unwrap();
+//! let b = Tensor::<CpuRuntime>::from_slice(&[5.0f32, 6.0, 7.0, 8.0], &[2, 2], &device).unwrap();
 //!
-//! let c = &a + &b;
-//! let d = a.matmul(&b)?;
+//! let c = client.add(&a, &b).unwrap();
+//! let d = client.matmul(&a, &b).unwrap();
+//! assert_eq!(c.shape(), &[2, 2]);
+//! assert_eq!(d.shape(), &[2, 2]);
 //! ```
 //!
 //! ## Feature Flags

@@ -45,6 +45,7 @@ use super::super::format::{SparseFormat, SparseStorage};
 /// # Ok::<(), numr::error::Error>(())
 /// ```
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum SparseTensor<R: Runtime> {
     /// COO (Coordinate) format - best for construction, incremental updates, and format conversion.
     ///

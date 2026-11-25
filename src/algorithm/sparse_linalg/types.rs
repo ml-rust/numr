@@ -137,6 +137,7 @@ impl Default for IcOptions {
 /// ILU(k) allows fill-in at positions where the level-of-fill ≤ k.
 /// Higher levels give better approximations but use more memory.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum IluFillLevel {
     /// ILU(0): Zero fill-in, same sparsity as A
     #[default]

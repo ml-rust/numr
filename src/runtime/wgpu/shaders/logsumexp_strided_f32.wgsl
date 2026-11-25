@@ -1,3 +1,7 @@
+fn f32_from_bits(bits: u32) -> f32 {
+    return bitcast<f32>(bits);
+}
+
 // Strided log-sum-exp shader for f32
 
 struct LogsumexpStridedParams {
@@ -38,11 +42,11 @@ fn logsumexp_strided_f32(
     }
 
     if (any_nan) {
-        output[outer_idx * params.inner_size + inner_idx] = bitcast<f32>(0x7fc00000u);
+        output[outer_idx * params.inner_size + inner_idx] = f32_from_bits(0x7fc00000u);
         return;
     }
     if (all_negative_infinity) {
-        output[outer_idx * params.inner_size + inner_idx] = bitcast<f32>(0xff800000u);
+        output[outer_idx * params.inner_size + inner_idx] = f32_from_bits(0xff800000u);
         return;
     }
 

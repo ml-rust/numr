@@ -265,6 +265,7 @@ impl Default for CudaDevice {
 
 /// CUDA-specific errors
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum CudaError {
     /// Device initialization or query error
     DeviceError(String),

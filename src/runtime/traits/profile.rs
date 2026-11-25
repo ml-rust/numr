@@ -10,6 +10,7 @@
 /// without hardcoding a `(major, minor)` compute-capability pair at every
 /// call site.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum DeviceArch {
     /// Host CPU.
     Cpu,

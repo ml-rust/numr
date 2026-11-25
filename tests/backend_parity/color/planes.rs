@@ -231,6 +231,7 @@ pub fn to_layout(chw: &[f32], h: usize, w: usize, layout: ConvLayout) -> Vec<f32
         ConvLayout::Nhwc => (0..h * w)
             .flat_map(|p| (0..3).map(move |c| chw[c * h * w + p]))
             .collect(),
+        _ => unreachable!(),
     }
 }
 
@@ -241,6 +242,7 @@ pub fn from_layout(vals: &[f32], h: usize, w: usize, layout: ConvLayout) -> Vec<
         ConvLayout::Nhwc => (0..3)
             .flat_map(|c| (0..h * w).map(move |p| vals[p * 3 + c]))
             .collect(),
+        _ => unreachable!(),
     }
 }
 
@@ -249,6 +251,7 @@ pub fn rgb_shape(h: usize, w: usize, layout: ConvLayout) -> [usize; 4] {
     match layout {
         ConvLayout::Nchw => [1, 3, h, w],
         ConvLayout::Nhwc => [1, h, w, 3],
+        _ => unreachable!(),
     }
 }
 

@@ -9,6 +9,7 @@ use crate::tensor::Tensor;
 
 /// Activation function to fuse into the GEMM epilogue.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum GemmActivation {
     /// No activation (identity)
     None,

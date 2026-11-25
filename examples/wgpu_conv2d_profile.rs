@@ -42,6 +42,7 @@ fn main() -> numr::error::Result<()> {
                     [1, height, width, CHANNELS],
                     [CHANNELS, KERNEL, KERNEL, CHANNELS],
                 ),
+                _ => unreachable!(),
             };
             let input = client.rand(&image, dtype)?;
             let weight = client.rand(&kernel, dtype)?;

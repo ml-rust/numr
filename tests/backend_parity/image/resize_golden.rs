@@ -123,6 +123,7 @@ pub fn to_layout(data: &[f32], [n, c, h, w]: [usize; 4], layout: ConvLayout) -> 
             }
             out
         }
+        _ => unreachable!(),
     }
 }
 
@@ -144,6 +145,7 @@ pub fn from_layout(data: &[f32], [n, c, h, w]: [usize; 4], layout: ConvLayout) -
             }
             out
         }
+        _ => unreachable!(),
     }
 }
 
@@ -152,6 +154,7 @@ pub fn shape(dims: [usize; 4], layout: ConvLayout) -> [usize; 4] {
     match layout {
         ConvLayout::Nchw => dims,
         ConvLayout::Nhwc => [dims[0], dims[2], dims[3], dims[1]],
+        _ => unreachable!(),
     }
 }
 

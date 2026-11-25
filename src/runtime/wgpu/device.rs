@@ -9,10 +9,13 @@
 
 use std::fmt;
 use std::sync::{Arc, OnceLock};
-use wgpu::{Adapter, Backend, DownlevelFlags, Features, Limits};
+#[cfg(feature = "wgpu-raw-interop")]
+use wgpu::DownlevelFlags;
+use wgpu::{Adapter, Backend, Features, Limits};
 
 /// Error type for WebGPU operations.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum WgpuError {
     /// No suitable GPU adapter found.
     NoAdapter,
@@ -100,6 +103,7 @@ impl AdapterInfo {
 }
 
 /// Storage buffers the largest kernel binds. The sparse merge kernels bind 9.
+#[cfg(feature = "wgpu-raw-interop")]
 const MIN_STORAGE_BUFFERS: u32 = if cfg!(feature = "sparse") { 9 } else { 8 };
 
 /// Check that a device can run numr kernels, and describe it.
@@ -112,6 +116,7 @@ const MIN_STORAGE_BUFFERS: u32 = if cfg!(feature = "sparse") { 9 } else { 8 };
 /// # Errors
 ///
 /// `WgpuError::DeviceUnsupported` names the unmet requirement.
+#[cfg(feature = "wgpu-raw-interop")]
 pub(crate) fn describe_installed(
     index: usize,
     adapter: &Adapter,
@@ -127,6 +132,7 @@ pub(crate) fn describe_installed(
 }
 
 /// The requirement check of [`describe_installed`], on values alone.
+#[cfg(feature = "wgpu-raw-interop")]
 fn check_installable(
     index: usize,
     flags: DownlevelFlags,
@@ -235,17 +241,51 @@ impl WgpuDevice {
             .unwrap_or_else(|| "unknown".to_string())
     }
 
-    /// Get the backend type (Vulkan, Metal, DX12, etc.).
+    /// Get the backend name (`"vulkan"`, `"metal"`, `"dx12"`, `"gl"`, `"webgpu"`).
+    ///
+    /// Returns `None` if the device has not been initialized yet.
+    pub fn backend_name(&self) -> Option<&'static str> {
+        self.info.as_ref().map(|i| match i.backend {
+            Backend::Vulkan => "vulkan",
+            Backend::Metal => "metal",
+            Backend::Dx12 => "dx12",
+            Backend::Gl => "gl",
+            Backend::BrowserWebGpu => "webgpu",
+            Backend::Noop => "noop",
+        })
+    }
+
+    /// Get the raw `wgpu::Backend` type (Vulkan, Metal, DX12, etc.).
     ///
     /// Returns `None` if the device hasn't been initialized yet.
+    #[cfg(feature = "wgpu-raw-interop")]
     pub fn backend(&self) -> Option<Backend> {
+        self.backend_inner()
+    }
+
+    #[cfg(not(feature = "wgpu-raw-interop"))]
+    pub(crate) fn backend(&self) -> Option<Backend> {
+        self.backend_inner()
+    }
+
+    fn backend_inner(&self) -> Option<Backend> {
         self.info.as_ref().map(|i| i.backend)
     }
 
-    /// Get device limits.
+    /// Get raw `wgpu::Limits` for the device.
     ///
     /// Returns default limits if the device hasn't been initialized yet.
+    #[cfg(feature = "wgpu-raw-interop")]
     pub fn limits(&self) -> Limits {
+        self.limits_inner()
+    }
+
+    #[cfg(not(feature = "wgpu-raw-interop"))]
+    pub(crate) fn limits(&self) -> Limits {
+        self.limits_inner()
+    }
+
+    fn limits_inner(&self) -> Limits {
         self.info
             .as_ref()
             .map(|i| i.limits.clone())
@@ -355,6 +395,7 @@ pub(crate) async fn query_adapter_info(
 }
 
 /// Query adapter information synchronously using pollster.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn query_adapter_info_blocking(
     index: usize,
 ) -> Result<(Adapter, Arc<AdapterInfo>), WgpuError> {
@@ -395,6 +436,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "wgpu-raw-interop")]
     #[test]
     fn test_install_floors_name_the_unmet_limit() {
         let compute = DownlevelFlags::COMPUTE_SHADERS;

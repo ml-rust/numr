@@ -21,7 +21,7 @@ mod client;
 mod device;
 mod fft;
 pub(crate) mod helpers;
-pub mod jacobi;
+pub(crate) mod jacobi;
 mod kernel;
 pub(crate) mod kernels;
 mod linalg;
@@ -32,7 +32,7 @@ mod runtime;
 pub(crate) mod sort;
 #[cfg(feature = "sparse")]
 pub(crate) mod sparse;
-pub mod special;
+pub(crate) mod special;
 pub(crate) mod statistics;
 mod strided_copy;
 pub(crate) mod strided_copy_into;

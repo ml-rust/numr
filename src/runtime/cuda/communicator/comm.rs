@@ -38,10 +38,34 @@ pub struct NcclCommunicator {
 }
 
 impl NcclCommunicator {
+    /// Create one communicator per CUDA client in this process, one GPU per client.
+    ///
+    /// Rank `i` uses `clients[i]`. Every client must be on a different device.
+    pub fn from_clients(clients: &[&super::super::CudaClient]) -> Result<Vec<Self>> {
+        let streams = clients.iter().map(|c| c.stream_arc().clone()).collect();
+        Self::from_streams_inner(streams)
+    }
+
+    /// Join rank `rank` of a `world_size`-rank communicator identified by `id`
+    /// using the given [`CudaClient`](super::super::CudaClient).
+    pub fn from_client_rank(
+        client: &super::super::CudaClient,
+        rank: usize,
+        world_size: usize,
+        id: NcclId,
+    ) -> Result<Self> {
+        Self::from_rank_inner(client.stream_arc().clone(), rank, world_size, id)
+    }
+
     /// Create one communicator per stream in this process, one GPU per stream.
     ///
     /// Rank `i` uses `streams[i]`. Every stream must be on a different device.
+    #[cfg(feature = "cuda-raw-interop")]
     pub fn from_streams(streams: Vec<Arc<CudaStream>>) -> Result<Vec<Self>> {
+        Self::from_streams_inner(streams)
+    }
+
+    fn from_streams_inner(streams: Vec<Arc<CudaStream>>) -> Result<Vec<Self>> {
         if streams.is_empty() {
             return Err(Error::InvalidArgument {
                 arg: "streams",
@@ -82,7 +106,17 @@ impl NcclCommunicator {
     /// Each rank calls this once, from its own process or thread, with the same `id`.
     /// The call blocks until all `world_size` ranks join. A peer that never joins
     /// leaves it blocked, and no handle exists yet to abort.
+    #[cfg(feature = "cuda-raw-interop")]
     pub fn from_rank(
+        stream: Arc<CudaStream>,
+        rank: usize,
+        world_size: usize,
+        id: NcclId,
+    ) -> Result<Self> {
+        Self::from_rank_inner(stream, rank, world_size, id)
+    }
+
+    fn from_rank_inner(
         stream: Arc<CudaStream>,
         rank: usize,
         world_size: usize,
@@ -121,7 +155,13 @@ impl NcclCommunicator {
     }
 
     /// The CUDA stream every NCCL call of this rank runs on.
+    #[cfg(feature = "cuda-raw-interop")]
     pub fn stream(&self) -> &Arc<CudaStream> {
+        &self.stream
+    }
+
+    #[cfg(not(feature = "cuda-raw-interop"))]
+    pub(crate) fn stream(&self) -> &Arc<CudaStream> {
         &self.stream
     }
 

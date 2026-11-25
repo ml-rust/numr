@@ -32,16 +32,23 @@ mod device;
 mod fft;
 mod fft_bluestein;
 mod linalg;
+mod oneshot;
 mod ops;
 mod polynomial;
 mod runtime;
-pub mod shaders;
+pub(crate) mod shaders;
 #[cfg(feature = "sparse")]
 mod sparse;
 mod special;
 mod statistics;
 
 pub use crate::tensor::Tensor;
-pub use client::{WgpuAllocator, WgpuClient, WgpuRawHandle, get_buffer};
+#[cfg(feature = "wgpu-raw-interop")]
+pub use client::get_buffer;
+pub use client::{WgpuAllocator, WgpuClient, WgpuRawHandle};
 pub use device::{WgpuDevice, WgpuError};
-pub use runtime::{WgpuRuntime, is_wgpu_available, wgpu_device, wgpu_device_id};
+pub use runtime::{
+    WgpuRuntime, is_wgpu_available, is_wgpu_available_async, wgpu_device, wgpu_device_id,
+};
+#[cfg(feature = "wgpu-raw-interop")]
+pub use shaders::{LayoutKey, PipelineCache};

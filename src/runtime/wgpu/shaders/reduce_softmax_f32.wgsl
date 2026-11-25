@@ -32,7 +32,7 @@ fn softmax_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
     let base_offset = batch_idx * dim_size;
 
     // Step 1: Find max for numerical stability
-    var max_val: f32 = bitcast<f32>(0xff800000u); // -inf: max's identity
+    var max_val: f32 = f32_from_bits(0xff800000u); // -inf: max's identity
     var i: u32 = tid;
     while (i < dim_size) {
         max_val = max(max_val, softmax_input[base_offset + i]);

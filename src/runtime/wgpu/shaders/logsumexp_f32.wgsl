@@ -1,3 +1,7 @@
+fn f32_from_bits(bits: u32) -> f32 {
+    return bitcast<f32>(bits);
+}
+
 // Log-sum-exp shader for f32
 //
 // Computes log(sum(exp(x))) in a numerically stable way:
@@ -37,11 +41,11 @@ fn logsumexp_f32(
     }
 
     if (any_nan) {
-        output[outer_idx] = bitcast<f32>(0x7fc00000u);
+        output[outer_idx] = f32_from_bits(0x7fc00000u);
         return;
     }
     if (all_negative_infinity) {
-        output[outer_idx] = bitcast<f32>(0xff800000u);
+        output[outer_idx] = f32_from_bits(0xff800000u);
         return;
     }
 

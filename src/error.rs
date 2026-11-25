@@ -6,6 +6,59 @@ use thiserror::Error;
 /// Result type alias using numr's Error
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Opaque CUDA driver error.
+///
+/// Wraps the underlying CUDA driver error code and message without exposing
+/// `cudarc` types in `numr`'s public error enum.
+#[cfg(feature = "cuda")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CudaDriverError {
+    code: i32,
+    message: String,
+}
+
+#[cfg(feature = "cuda")]
+impl CudaDriverError {
+    /// Raw CUDA driver `CUresult` integer code.
+    #[inline]
+    pub fn code(&self) -> i32 {
+        self.code
+    }
+
+    /// Human-readable driver error description.
+    #[inline]
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+#[cfg(feature = "cuda")]
+impl std::fmt::Display for CudaDriverError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} (code {})", self.message, self.code)
+    }
+}
+
+#[cfg(feature = "cuda")]
+impl std::error::Error for CudaDriverError {}
+
+#[cfg(feature = "cuda")]
+impl From<cudarc::driver::DriverError> for CudaDriverError {
+    fn from(err: cudarc::driver::DriverError) -> Self {
+        Self {
+            code: err.0 as i32,
+            message: err.to_string(),
+        }
+    }
+}
+
+#[cfg(feature = "cuda")]
+impl From<cudarc::driver::DriverError> for Error {
+    fn from(err: cudarc::driver::DriverError) -> Self {
+        Self::Cuda(CudaDriverError::from(err))
+    }
+}
+
 /// Errors that can occur in numr operations
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -143,7 +196,7 @@ pub enum Error {
     /// CUDA-specific error
     #[cfg(feature = "cuda")]
     #[error("CUDA error: {0}")]
-    Cuda(#[from] cudarc::driver::DriverError),
+    Cuda(#[from] CudaDriverError),
 
     /// Generic message error
     #[error("{0}")]

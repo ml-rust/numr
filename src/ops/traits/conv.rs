@@ -9,6 +9,7 @@ use crate::tensor::Tensor;
 
 /// Padding mode for convolution operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum PaddingMode {
     /// No padding - output is smaller than input.
     #[default]

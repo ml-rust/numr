@@ -3,6 +3,7 @@
 use super::client::WgpuClient;
 use super::device::WgpuDevice;
 use std::collections::HashMap;
+#[cfg(feature = "wgpu-raw-interop")]
 use std::collections::hash_map::Entry;
 use std::sync::{Mutex, OnceLock};
 
@@ -11,6 +12,23 @@ use std::sync::{Mutex, OnceLock};
 /// This caches WgpuClient instances per device to avoid creating new
 /// WebGPU devices and queues on every operation.
 static CLIENT_CACHE: OnceLock<Mutex<HashMap<usize, WgpuClient>>> = OnceLock::new();
+
+/// Return an already-cached `WgpuClient` for `device`, if initialized.
+pub(super) fn get_cached_client(device: &WgpuDevice) -> Option<WgpuClient> {
+    let cache = CLIENT_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+    cache_guard.get(&device.index).cloned()
+}
+
+/// Insert `client` into the cache if vacant, returning the canonical cached client.
+pub(super) fn insert_or_get_client(client: WgpuClient) -> WgpuClient {
+    let cache = CLIENT_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+    cache_guard
+        .entry(client.device_id.index)
+        .or_insert(client)
+        .clone()
+}
 
 /// Get or create a cached WgpuClient for a device.
 ///
@@ -23,17 +41,31 @@ pub(super) fn get_or_create_client(
     device: &WgpuDevice,
 ) -> Result<WgpuClient, super::device::WgpuError> {
     let cache = CLIENT_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    #[cfg(not(target_arch = "wasm32"))]
     let mut cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+    #[cfg(target_arch = "wasm32")]
+    let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
 
     if let Some(client) = cache_guard.get(&device.index) {
         return Ok(client.clone());
     }
 
-    // Create new client via uncached path and cache it
-    let client = WgpuClient::new_uncached(device.clone())?;
-    cache_guard.insert(device.index, client.clone());
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        // Create new client via uncached path and cache it
+        let client = WgpuClient::new_uncached(device.clone())?;
+        cache_guard.insert(device.index, client.clone());
+        Ok(client)
+    }
 
-    Ok(client)
+    #[cfg(target_arch = "wasm32")]
+    {
+        Err(super::device::WgpuError::DeviceError(
+            "WgpuClient must be initialized with WgpuClient::new_async(device).await on wasm32 \
+             before allocating tensors or dispatching operations"
+                .into(),
+        ))
+    }
 }
 
 /// Cache `client` under its device index, unless the index already has one.
@@ -44,6 +76,7 @@ pub(super) fn get_or_create_client(
 /// # Errors
 ///
 /// `WgpuError::IndexInUse` when the cache already holds the index.
+#[cfg(feature = "wgpu-raw-interop")]
 pub(super) fn install_client(client: WgpuClient) -> Result<WgpuClient, super::device::WgpuError> {
     let cache = CLIENT_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let mut cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());

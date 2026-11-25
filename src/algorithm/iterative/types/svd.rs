@@ -5,6 +5,7 @@ use crate::tensor::Tensor;
 
 /// Which singular values to compute
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[non_exhaustive]
 pub enum WhichSingularValues {
     /// Largest singular values
     #[default]

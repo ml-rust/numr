@@ -5,6 +5,7 @@
 /// Algorithms must check this declaration and their active execution environment independently.
 /// Arithmetic probes cannot establish a stronger provider contract.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum SquareRootContract {
     /// No portable correct-rounding or gradual-underflow guarantee is declared for this dtype.
     #[default]

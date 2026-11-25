@@ -33,6 +33,7 @@ pub fn broadcast_shape(a: &[usize], b: &[usize]) -> Option<Vec<usize>> {
 
 /// Binary operation kind
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum BinaryOp {
     /// Addition: a + b
     Add,
@@ -54,6 +55,7 @@ pub enum BinaryOp {
 
 /// Unary operation kind
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum UnaryOp {
     // === Sign and Absolute ===
     /// Negation: -a
@@ -142,6 +144,7 @@ pub enum UnaryOp {
 
 /// Comparison operation kind
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum CompareOp {
     /// Equal: a == b
     Eq,

@@ -82,6 +82,7 @@ pub fn check_rgb24_ties_and_clamps<R: Runtime<DType = DType>, C: ColorOps<R>>(
         let shape = match layout {
             ConvLayout::Nchw => [1, 3, 1, n],
             ConvLayout::Nhwc => [1, 1, n, 3],
+            _ => unreachable!(),
         };
         let rgb = Tensor::<R>::from_slice(&vals, &shape, device).expect("rgb");
         let out = client.float_to_rgb24(&rgb, layout).expect("pack");

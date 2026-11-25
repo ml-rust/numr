@@ -1,3 +1,7 @@
+fn f32_from_bits(bits: u32) -> f32 {
+    return bitcast<f32>(bits);
+}
+
 // scatter_reduce reductions for f32.
 //
 // Concatenated after scatter_reduce_common.wgsl, whose bindings, params and
@@ -22,10 +26,10 @@ fn sr_seed(d: u32, op: u32) -> f32 {
         return 1.0;
     }
     if (op == SR_MAX) {
-        return bitcast<f32>(0xff800000u);
+        return f32_from_bits(0xff800000u);
     }
     if (op == SR_MIN) {
-        return bitcast<f32>(0x7f800000u);
+        return f32_from_bits(0x7f800000u);
     }
     return 0.0;
 }

@@ -38,7 +38,11 @@ mod env_config;
 mod fft;
 mod fft_bluestein;
 mod graph;
+#[cfg(feature = "cuda-raw-interop")]
+#[doc(hidden)]
 pub mod kernels;
+#[cfg(not(feature = "cuda-raw-interop"))]
+pub(crate) mod kernels;
 mod linalg;
 mod ops;
 mod polynomial;
@@ -49,6 +53,7 @@ mod sparse;
 mod special;
 pub mod tune;
 
+pub use crate::error::CudaDriverError;
 pub use crate::tensor::Tensor;
 pub use allocator::{CudaAllocator, CudaMemoryStats};
 pub use capture::{GuardedLaunchBuilder, GuardedStream};

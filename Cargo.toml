@@ -34,10 +34,16 @@ features = ["f16", "sparse", "fp8", "wgpu"]
 [features]
 default = ["rayon"]
 cuda = ["dep:cudarc"]
+# Opt-in raw cudarc interop (streams, contexts, driver errors, kernel hooks).
+# Exempt from numr 1.x SemVer guarantees because cudarc types appear in signatures.
+cuda-raw-interop = ["cuda"]
 nccl = ["cuda", "cudarc?/nccl"]
 distributed = ["dep:nexar", "dep:tokio"]
 distributed-gpu = ["distributed", "nccl", "dep:nexar-nccl"]
 wgpu = ["dep:wgpu", "dep:pollster", "dep:parking_lot"]
+# Opt-in raw wgpu interop (Device, Queue, Buffer, CommandEncoder, PipelineCache).
+# Exempt from numr 1.x SemVer guarantees because wgpu types appear in signatures.
+wgpu-raw-interop = ["wgpu"]
 rayon = ["dep:rayon"]
 f16 = [
   "dep:half",

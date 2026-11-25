@@ -62,7 +62,10 @@ fn sort_rank_less_f32(a: f32, idx_a: i32, b: f32, idx_b: i32, descending: bool) 
 // Ascending that is NaN (the greatest value); descending it is -inf. Both must
 // be beyond any real value, otherwise real infinities get dropped.
 fn sort_pad_f32(descending: bool) -> f32 {
-    return select(bitcast<f32>(0x7fc00000u), bitcast<f32>(0xff800000u), descending);
+    let nan_bits: u32 = 0x7fc00000u;
+    let neg_inf_bits: u32 = 0xff800000u;
+    var sentinel_bits = select(nan_bits, neg_inf_bits, descending);
+    return bitcast<f32>(sentinel_bits);
 }
 "#
     };

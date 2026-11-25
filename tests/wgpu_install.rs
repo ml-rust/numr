@@ -4,7 +4,7 @@
 //! takes its own index far past any adapter. Every test prints a notice and
 //! returns when no adapter is available.
 
-#![cfg(feature = "wgpu")]
+#![cfg(feature = "wgpu-raw-interop")]
 
 use std::sync::Arc;
 

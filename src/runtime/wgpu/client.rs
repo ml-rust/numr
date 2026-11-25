@@ -8,14 +8,22 @@
 //! are already `Send + Sync` by design.
 
 use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
-use wgpu::{Adapter, Buffer, BufferDescriptor, BufferUsages, Device, Queue};
+#[cfg(feature = "wgpu-raw-interop")]
+use wgpu::Adapter;
+use wgpu::{Buffer, BufferDescriptor, BufferUsages, Device, Queue};
 
 use super::WgpuRuntime;
 pub use super::allocator::{WgpuAllocator, get_buffer};
-use super::device::{WgpuDevice, WgpuError, describe_installed, query_adapter_info_blocking};
+#[cfg(feature = "wgpu-raw-interop")]
+use super::device::describe_installed;
+#[cfg(not(target_arch = "wasm32"))]
+use super::device::query_adapter_info_blocking;
+use super::device::{WgpuDevice, WgpuError, query_adapter_info};
 use super::shaders::PipelineCache;
 use crate::runtime::RuntimeClient;
+use crate::tensor::Tensor;
 
 // ============================================================================
 // WgpuClient
@@ -73,8 +81,53 @@ impl WgpuClient {
     /// Returns an error if:
     /// - No suitable GPU adapter is found
     /// - Device creation fails
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new(device: WgpuDevice) -> Result<Self, WgpuError> {
         super::cache::get_or_create_client(&device)
+    }
+
+    /// Create or retrieve a cached WebGPU client asynchronously.
+    ///
+    /// Awaits adapter and device discovery natively without blocking the calling thread,
+    /// so it works on both native targets and browser `wasm32` WebGPU runtimes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no suitable GPU adapter is found or device creation fails.
+    pub async fn new_async(device: WgpuDevice) -> Result<Self, WgpuError> {
+        if let Some(cached) = super::cache::get_cached_client(&device) {
+            return Ok(cached);
+        }
+        let client = Self::new_uncached_async(device).await?;
+        Ok(super::cache::insert_or_get_client(client))
+    }
+
+    /// Internal: create a fresh WebGPU client asynchronously (not cached).
+    async fn new_uncached_async(device: WgpuDevice) -> Result<Self, WgpuError> {
+        let (adapter, info) = query_adapter_info(device.index).await?;
+        let features = adapter.features();
+        let required_features = if features.contains(wgpu::Features::SUBGROUP) {
+            wgpu::Features::SUBGROUP
+        } else {
+            wgpu::Features::empty()
+        };
+
+        let (wgpu_device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("numr WebGPU Device"),
+                required_features,
+                // The adapter's own maxima. The WebGPU defaults cap a
+                // buffer at 256 MiB, below one LLM embedding table.
+                required_limits: adapter.limits(),
+                memory_hints: wgpu::MemoryHints::Performance,
+                trace: wgpu::Trace::Off,
+                experimental_features: wgpu::ExperimentalFeatures::default(),
+            })
+            .await
+            .map_err(|e| WgpuError::DeviceError(format!("{:?}", e)))?;
+
+        let device_with_info = WgpuDevice::with_info(device.index, info);
+        Ok(Self::from_parts(device_with_info, wgpu_device, queue))
     }
 
     /// Internal: create a fresh WebGPU client (not cached).
@@ -82,6 +135,7 @@ impl WgpuClient {
     /// This is called by the cache layer. External users should call `new()`
     /// which goes through the cache to ensure a single `wgpu::Device` per
     /// device index.
+    #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn new_uncached(device: WgpuDevice) -> Result<Self, WgpuError> {
         let (adapter, info) = query_adapter_info_blocking(device.index)?;
 
@@ -136,6 +190,7 @@ impl WgpuClient {
     ///   installed or created on first use.
     /// - `WgpuError::DeviceUnsupported` when the adapter has no compute
     ///   shaders, or `device` has a limit below what numr kernels need.
+    #[cfg(feature = "wgpu-raw-interop")]
     pub fn install(
         index: usize,
         adapter: &Adapter,
@@ -175,33 +230,66 @@ impl WgpuClient {
     }
 
     /// Get reference to the WebGPU device.
+    #[cfg(feature = "wgpu-raw-interop")]
     #[inline]
     pub fn wgpu_device(&self) -> &Device {
         &self.wgpu_device
     }
 
+    #[cfg(not(feature = "wgpu-raw-interop"))]
+    #[inline]
+    pub(crate) fn wgpu_device(&self) -> &Device {
+        &self.wgpu_device
+    }
+
     /// Get Arc-wrapped WebGPU device.
+    #[cfg(feature = "wgpu-raw-interop")]
     #[inline]
     pub fn wgpu_device_arc(&self) -> &Arc<Device> {
         &self.wgpu_device
     }
 
     /// Get reference to the WebGPU queue.
+    #[cfg(feature = "wgpu-raw-interop")]
     #[inline]
     pub fn wgpu_queue(&self) -> &Queue {
         &self.queue
     }
 
+    #[cfg(not(feature = "wgpu-raw-interop"))]
+    #[inline]
+    pub(crate) fn wgpu_queue(&self) -> &Queue {
+        &self.queue
+    }
+
     /// Get reference to the pipeline cache.
+    #[cfg(feature = "wgpu-raw-interop")]
     #[inline]
     pub fn pipeline_cache(&self) -> &PipelineCache {
+        &self.pipeline_cache
+    }
+
+    #[cfg(not(feature = "wgpu-raw-interop"))]
+    #[inline]
+    pub(crate) fn pipeline_cache(&self) -> &PipelineCache {
         &self.pipeline_cache
     }
 
     /// Create a storage buffer for tensor data.
     ///
     /// Storage buffers can be read/written by compute shaders.
+    #[cfg(feature = "wgpu-raw-interop")]
     pub fn create_storage_buffer(&self, label: &str, size: u64) -> Buffer {
+        self.create_storage_buffer_inner(label, size)
+    }
+
+    #[cfg(all(test, not(feature = "wgpu-raw-interop")))]
+    pub(crate) fn create_storage_buffer(&self, label: &str, size: u64) -> Buffer {
+        self.create_storage_buffer_inner(label, size)
+    }
+
+    #[cfg(any(test, feature = "wgpu-raw-interop"))]
+    fn create_storage_buffer_inner(&self, label: &str, size: u64) -> Buffer {
         self.wgpu_device.create_buffer(&BufferDescriptor {
             label: Some(label),
             size,
@@ -213,7 +301,17 @@ impl WgpuClient {
     /// Create a staging buffer for CPU readback.
     ///
     /// Staging buffers are used to copy data from GPU to CPU.
+    #[cfg(feature = "wgpu-raw-interop")]
     pub fn create_staging_buffer(&self, label: &str, size: u64) -> Buffer {
+        self.create_staging_buffer_inner(label, size)
+    }
+
+    #[cfg(not(feature = "wgpu-raw-interop"))]
+    pub(crate) fn create_staging_buffer(&self, label: &str, size: u64) -> Buffer {
+        self.create_staging_buffer_inner(label, size)
+    }
+
+    fn create_staging_buffer_inner(&self, label: &str, size: u64) -> Buffer {
         self.wgpu_device.create_buffer(&BufferDescriptor {
             label: Some(label),
             size,
@@ -223,7 +321,17 @@ impl WgpuClient {
     }
 
     /// Create a uniform buffer for shader parameters.
+    #[cfg(feature = "wgpu-raw-interop")]
     pub fn create_uniform_buffer(&self, label: &str, size: u64) -> Buffer {
+        self.create_uniform_buffer_inner(label, size)
+    }
+
+    #[cfg(not(feature = "wgpu-raw-interop"))]
+    pub(crate) fn create_uniform_buffer(&self, label: &str, size: u64) -> Buffer {
+        self.create_uniform_buffer_inner(label, size)
+    }
+
+    fn create_uniform_buffer_inner(&self, label: &str, size: u64) -> Buffer {
         self.wgpu_device.create_buffer(&BufferDescriptor {
             label: Some(label),
             size,
@@ -233,56 +341,93 @@ impl WgpuClient {
     }
 
     /// Write data to a buffer.
+    #[cfg(feature = "wgpu-raw-interop")]
     pub fn write_buffer<T: bytemuck::Pod>(&self, buffer: &Buffer, data: &[T]) {
+        self.write_buffer_inner(buffer, data);
+    }
+
+    #[cfg(not(feature = "wgpu-raw-interop"))]
+    pub(crate) fn write_buffer<T: bytemuck::Pod>(&self, buffer: &Buffer, data: &[T]) {
+        self.write_buffer_inner(buffer, data);
+    }
+
+    fn write_buffer_inner<T: bytemuck::Pod>(&self, buffer: &Buffer, data: &[T]) {
         self.queue
             .write_buffer(buffer, 0, bytemuck::cast_slice(data));
     }
 
     /// Submit commands and wait for completion.
+    #[cfg(feature = "wgpu-raw-interop")]
     pub fn submit_and_wait(&self, encoder: wgpu::CommandEncoder) {
+        self.submit_and_wait_inner(encoder);
+    }
+
+    #[cfg(not(feature = "wgpu-raw-interop"))]
+    pub(crate) fn submit_and_wait(&self, encoder: wgpu::CommandEncoder) {
+        self.submit_and_wait_inner(encoder);
+    }
+
+    fn submit_and_wait_inner(&self, encoder: wgpu::CommandEncoder) {
         let submission = self.queue.submit(std::iter::once(encoder.finish()));
+        #[cfg(not(target_arch = "wasm32"))]
         let _ = self.wgpu_device.poll(wgpu::PollType::Wait {
             submission_index: Some(submission),
             timeout: Some(Duration::from_secs(60)),
         });
+        #[cfg(target_arch = "wasm32")]
+        let _ = submission;
     }
 
-    /// Read buffer data back to CPU (blocking).
-    pub fn read_buffer<T: bytemuck::Pod>(
+    /// Read buffer data back to CPU asynchronously without blocking the calling thread.
+    ///
+    /// Awaits `map_async` over an async oneshot channel. Safe on browser `wasm32`
+    /// where `PollType::Wait` is a no-op and blocking channels deadlock.
+    #[cfg(feature = "wgpu-raw-interop")]
+    pub async fn read_buffer_async<T: bytemuck::Pod>(
+        &self,
+        staging: &Buffer,
+        output: &mut [T],
+    ) -> crate::error::Result<()> {
+        self.read_buffer_async_inner(staging, output).await
+    }
+
+    async fn read_buffer_async_inner<T: bytemuck::Pod>(
         &self,
         staging: &Buffer,
         output: &mut [T],
     ) -> crate::error::Result<()> {
         let slice = staging.slice(..);
 
-        let (sender, receiver) = std::sync::mpsc::channel();
+        let (sender, receiver) = super::oneshot::channel();
         slice.map_async(wgpu::MapMode::Read, move |result| {
-            let _ = sender.send(result);
+            sender.send(result);
         });
 
+        #[cfg(not(target_arch = "wasm32"))]
         self.wgpu_device
             .poll(wgpu::PollType::Wait {
                 submission_index: None,
                 timeout: Some(Duration::from_secs(60)),
             })
             .map_err(|e| {
-                crate::error::Error::Backend(format!("GPU poll failed during buffer read: {e}"))
+                crate::error::Error::Backend(format!(
+                    "GPU poll failed during async buffer read: {e}"
+                ))
             })?;
 
-        // Check map_async result
-        let map_result = receiver.recv().map_err(|_| {
+        let map_result = receiver.await.ok_or_else(|| {
             crate::error::Error::Backend(
-                "map_async callback was not invoked during buffer read".into(),
+                "map_async callback was not invoked during async buffer read".into(),
             )
         })?;
         map_result.map_err(|e| {
-            crate::error::Error::Backend(format!("map_async failed during buffer read: {e}"))
+            crate::error::Error::Backend(format!("map_async failed during async buffer read: {e}"))
         })?;
 
         {
             let data = slice.get_mapped_range().map_err(|e| {
                 crate::error::Error::Backend(format!(
-                    "get_mapped_range failed during buffer read: {e}"
+                    "get_mapped_range failed during async buffer read: {e}"
                 ))
             })?;
             let src: &[T] = bytemuck::cast_slice(&data);
@@ -292,6 +437,150 @@ impl WgpuClient {
         staging.unmap();
         Ok(())
     }
+
+    /// Copy a `WgpuRuntime` tensor back to a host `Vec<T>` asynchronously.
+    ///
+    /// Safe on both native targets and browser `wasm32` WebGPU runtimes (no blocking poll).
+    pub async fn read_tensor_to_vec_async<T: bytemuck::Pod>(
+        &self,
+        tensor: &Tensor<WgpuRuntime>,
+    ) -> crate::error::Result<Vec<T>> {
+        let dtype = tensor.dtype();
+        let dtype_bytes = dtype.size_in_bytes();
+        let elem_bytes = std::mem::size_of::<T>();
+        if elem_bytes != dtype_bytes {
+            return Err(crate::error::Error::HostReadTypeMismatch {
+                dtype: dtype.short_name(),
+                dtype_bytes,
+                elem_bytes,
+            });
+        }
+
+        let numel = tensor.numel();
+        if numel == 0 {
+            return Ok(Vec::new());
+        }
+
+        let contiguous = tensor.contiguous()?;
+        let src_ptr = contiguous.storage().ptr();
+        let byte_len = numel * dtype_bytes;
+        let aligned_len = byte_len.div_ceil(4) * 4;
+
+        let buffer = super::allocator::get_buffer(src_ptr).ok_or_else(|| {
+            crate::error::Error::Backend("Buffer not found for read_tensor_to_vec_async".into())
+        })?;
+
+        let staging = self.create_staging_buffer("read_tensor_async_staging", aligned_len as u64);
+        let mut encoder =
+            self.wgpu_device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("read_tensor_to_vec_async"),
+                });
+        encoder.copy_buffer_to_buffer(&buffer, 0, &staging, 0, aligned_len as u64);
+        self.queue.submit(std::iter::once(encoder.finish()));
+
+        let mut bytes = vec![0u8; byte_len];
+        self.read_buffer_async_inner(&staging, &mut bytes).await?;
+
+        let mut out = vec![T::zeroed(); numel];
+        bytemuck::cast_slice_mut(&mut out).copy_from_slice(&bytes);
+        Ok(out)
+    }
+
+    /// Read a single-element `WgpuRuntime` tensor back to a host scalar asynchronously.
+    ///
+    /// Safe on both native targets and browser `wasm32` WebGPU runtimes.
+    pub async fn read_scalar_async<T: bytemuck::Pod + Copy>(
+        &self,
+        tensor: &Tensor<WgpuRuntime>,
+    ) -> crate::error::Result<T> {
+        if tensor.numel() != 1 {
+            return Err(crate::error::Error::InvalidArgument {
+                arg: "tensor",
+                reason: format!(
+                    "read_scalar_async requires a 1-element tensor, got {} elements",
+                    tensor.numel()
+                ),
+            });
+        }
+        let values = self.read_tensor_to_vec_async::<T>(tensor).await?;
+        Ok(values[0])
+    }
+
+    /// Read buffer data back to CPU (blocking).
+    #[cfg(feature = "wgpu-raw-interop")]
+    pub fn read_buffer<T: bytemuck::Pod>(
+        &self,
+        staging: &Buffer,
+        output: &mut [T],
+    ) -> crate::error::Result<()> {
+        self.read_buffer_inner(staging, output)
+    }
+
+    #[cfg(not(feature = "wgpu-raw-interop"))]
+    pub(crate) fn read_buffer<T: bytemuck::Pod>(
+        &self,
+        staging: &Buffer,
+        output: &mut [T],
+    ) -> crate::error::Result<()> {
+        self.read_buffer_inner(staging, output)
+    }
+
+    fn read_buffer_inner<T: bytemuck::Pod>(
+        &self,
+        staging: &Buffer,
+        output: &mut [T],
+    ) -> crate::error::Result<()> {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = (staging, output);
+            return Err(crate::error::Error::Backend(
+                "synchronous read_buffer is not supported on wasm32; use read_buffer_async".into(),
+            ));
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let slice = staging.slice(..);
+
+            let (sender, receiver) = std::sync::mpsc::channel();
+            slice.map_async(wgpu::MapMode::Read, move |result| {
+                let _ = sender.send(result);
+            });
+
+            self.wgpu_device
+                .poll(wgpu::PollType::Wait {
+                    submission_index: None,
+                    timeout: Some(Duration::from_secs(60)),
+                })
+                .map_err(|e| {
+                    crate::error::Error::Backend(format!("GPU poll failed during buffer read: {e}"))
+                })?;
+
+            // Check map_async result
+            let map_result = receiver.recv().map_err(|_| {
+                crate::error::Error::Backend(
+                    "map_async callback was not invoked during buffer read".into(),
+                )
+            })?;
+            map_result.map_err(|e| {
+                crate::error::Error::Backend(format!("map_async failed during buffer read: {e}"))
+            })?;
+
+            {
+                let data = slice.get_mapped_range().map_err(|e| {
+                    crate::error::Error::Backend(format!(
+                        "get_mapped_range failed during buffer read: {e}"
+                    ))
+                })?;
+                let src: &[T] = bytemuck::cast_slice(&data);
+                output.copy_from_slice(&src[..output.len()]);
+            }
+
+            staging.unmap();
+            Ok(())
+        }
+    }
 }
 
 impl RuntimeClient<WgpuRuntime> for WgpuClient {
@@ -300,7 +589,8 @@ impl RuntimeClient<WgpuRuntime> for WgpuClient {
     }
 
     fn synchronize(&self) {
-        // Wait for all GPU work to complete
+        // Wait for all GPU work to complete (native only; browser WebGPU polls via event loop)
+        #[cfg(not(target_arch = "wasm32"))]
         let _ = self.wgpu_device.poll(wgpu::PollType::Wait {
             submission_index: None,
             timeout: Some(Duration::from_secs(60)),
@@ -333,9 +623,26 @@ impl RuntimeClient<WgpuRuntime> for WgpuClient {
 #[derive(Clone)]
 pub struct WgpuRawHandle {
     /// WebGPU device for pipeline creation
-    pub device: Arc<Device>,
+    #[cfg_attr(not(feature = "wgpu-raw-interop"), allow(dead_code))]
+    pub(crate) device: Arc<Device>,
     /// WebGPU queue for command submission
-    pub queue: Arc<Queue>,
+    #[cfg_attr(not(feature = "wgpu-raw-interop"), allow(dead_code))]
+    pub(crate) queue: Arc<Queue>,
+}
+
+#[cfg(feature = "wgpu-raw-interop")]
+impl WgpuRawHandle {
+    /// Raw `wgpu::Device` handle.
+    #[inline]
+    pub fn device(&self) -> &Arc<Device> {
+        &self.device
+    }
+
+    /// Raw `wgpu::Queue` handle.
+    #[inline]
+    pub fn queue(&self) -> &Arc<Queue> {
+        &self.queue
+    }
 }
 
 // ============================================================================

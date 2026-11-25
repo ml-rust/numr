@@ -190,6 +190,7 @@ where
             to_layout(&w, OIHW_TO_OHWI),
             to_layout(&residual, OIHW_TO_OHWI),
         ),
+        _ => unreachable!(),
     };
     let activation = match act {
         Act::None => ConvActivation::None,
@@ -215,6 +216,7 @@ where
     let nchw = |t: Tensor<R>| match layout {
         ConvLayout::Nchw => t,
         ConvLayout::Nhwc => to_layout(&t, NHWC_TO_NCHW),
+        _ => unreachable!(),
     };
     (nchw(fused), nchw(into))
 }

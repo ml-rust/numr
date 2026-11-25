@@ -80,6 +80,7 @@ pub fn record_sparse<R: Runtime<DType = DType>>(
         SparseTensor::Csr(d) => ("csr", d.row_ptrs(), d.col_indices(), d.values()),
         SparseTensor::Csc(d) => ("csc", d.col_ptrs(), d.row_indices(), d.values()),
         SparseTensor::Coo(d) => ("coo", d.row_indices(), d.col_indices(), d.values()),
+        _ => unreachable!(),
     };
     let [nrows, ncols] = t.shape();
     snap.push((

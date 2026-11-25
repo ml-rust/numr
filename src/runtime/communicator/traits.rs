@@ -5,6 +5,7 @@ use crate::error::Result;
 
 /// Reduction operation for collective communication
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ReduceOp {
     /// Element-wise sum across ranks
     Sum,
